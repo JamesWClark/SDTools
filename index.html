@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Document</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/twitter-bootstrap/5.1.0/css/bootstrap.min.css"
+        integrity="sha512-2QJL5jZzqyJZJQ1xJ8v9jZzvWJv6J0sJ7wJ+JgJZzjJ9z5J5zvJ8J9z7vJqZJzJZ9z8z3QJz5v5vJz4zJzJjCw=="
+        crossorigin="anonymous" referrerpolicy="no-referrer" />
+    <style>
+        img {
+            height: 100vh;
+            margin: 5px;
+        }
+
+        @media (min-height: calc(2 * 50vh)) {
+            img {
+                height: 55vh;
+            }
+        }
+
+        html,
+        body {
+            background-color: #333;
+            margin: 0;
+            padding: 0;
+        }
+
+        #image-container {
+            margin: auto;
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: center;
+
+        }
+    </style>
+</head>
+
+<body>
+    <div id="image-container"></div>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.2/socket.io.min.js"
+        integrity="sha512-Xm9qbB6Pu06k3PUwPj785dyTl6oHxgsv9nHp7ej7nCpAqGZT3OZpsELuCYX05DdonFpTlBpXMOxjavIAIUwr0w=="
+        crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+    <script>
+
+        let timerId = null;
+        let isZoomed = false;
+        let zoomedImage = null;
+        let lastKeyPressTime = 0;
+        let lastKeyPressed = '';
+
+        // scroll to top
+        window.onbeforeunload = function () { window.scrollTo(0, 0); }
+
+        const socket = io('http://192.168.86.181:8000');
+
+        socket.on('connect', () => {
+            console.log('WebSocket connected');
+        });
+
+        function zoom(event) {
+            if (isZoomed) {
+                event.target.style.position = 'static';
+                event.target.style.zIndex = 'auto';
+                event.target.style.width = 'auto';
+                event.target.style.height = '55vh';
+                event.target.style.top = 'auto';
+                event.target.style.left = 'auto';
+                isZoomed = false;
+                zoomedImage = null;
+            } else {
+                event.target.style.position = 'fixed';
+                event.target.style.zIndex = '9999';
+                event.target.style.width = '100%';
+                event.target.style.height = '100%';
+                event.target.style.objectFit = 'contain';
+                event.target.style.top = '0';
+                event.target.style.left = '0';
+                isZoomed = true;
+                zoomedImage = event.target;
+            }
+        }
+        
+        socket.on('image', (imagePath) => {
+            const img = document.createElement('img');
+            img.src = imagePath;
+            img.addEventListener('click', zoom);
+
+            if (isZoomed && zoomedImage) {
+                // If an image is currently zoomed, replace it with the new image
+                const newZoomedImage = document.createElement('img');
+                newZoomedImage.src = imagePath;
+                newZoomedImage.addEventListener('click', zoom);
+                zoomedImage.parentNode.replaceChild(newZoomedImage, zoomedImage);
+                zoomedImage = newZoomedImage;
+                // Manually set the zoomed state for the new image
+                zoomedImage.style.position = 'fixed';
+                zoomedImage.style.zIndex = '9999';
+                zoomedImage.style.width = '100%';
+                zoomedImage.style.height = '100%';
+                zoomedImage.style.objectFit = 'contain';
+                zoomedImage.style.top = '0';
+                zoomedImage.style.left = '0';
+                isZoomed = true;
+            } else {
+                // If no image is currently zoomed, add the new image to the container
+                const container = document.querySelector('#image-container');
+                container.insertBefore(img, container.firstChild);
+            }
+        });
+
+        socket.on('disconnect', () => {
+            console.log('WebSocket disconnected');
+        });
+
+        document.addEventListener('keydown', (event) => {
+            if (isZoomed) {
+                if ((event.code === 'ArrowRight' && zoomedImage.nextElementSibling) ||
+                    (event.code === 'ArrowLeft' && zoomedImage.previousElementSibling)) {
+                    // Get the next or previous image
+                    const nextImage = event.code === 'ArrowRight' ? zoomedImage.nextElementSibling : zoomedImage.previousElementSibling;
+                    // Create a custom event object for the current image
+                    const zoomOutEvent = { target: zoomedImage };
+                    // Zoom out the current image
+                    zoom(zoomOutEvent);
+                    // Create a custom event object for the next or previous image
+                    const zoomInEvent = { target: nextImage };
+                    // Zoom in the next or previous image
+                    zoom(zoomInEvent);
+                }
+
+                if (event.key === 'p') {
+                    if (timerId) {
+                        // If a timer is already running, stop it
+                        clearInterval(timerId);
+                        timerId = null;
+                    } else {
+                        // Start a timer that advances to the next image every second or two
+                        timerId = setInterval(() => {
+                            if (isZoomed && zoomedImage && zoomedImage.nextElementSibling) {
+                                // Get the next image
+                                const nextImage = zoomedImage.nextElementSibling;
+                                // Create a custom event object for the current image
+                                const zoomOutEvent = { target: zoomedImage };
+                                // Zoom out the current image
+                                zoom(zoomOutEvent);
+                                // Create a custom event object for the next image
+                                const zoomInEvent = { target: nextImage };
+                                // Zoom in the next image
+                                zoom(zoomInEvent);
+                            }
+                        }, 2000);  // Change this to the desired interval in milliseconds
+                    }
+                } else if (event.key === 'Escape') {
+                    if (isZoomed && zoomedImage) {
+                        // Remove the zoomed image from the DOM
+                        zoomedImage.remove();
+                        // Reset zoomed state
+                        isZoomed = false;
+                        zoomedImage = null;
+                    }
+                } else if (event.key === 'd' || event.key === 'Delete') {
+                    const currentTime = new Date().getTime();
+                    if ((lastKeyPressed === 'd' || lastKeyPressed === 'Delete') && currentTime - lastKeyPressTime < 300) {
+                        // Double 'd' or 'Delete' key press detected
+                        if (isZoomed && zoomedImage) {
+                            // Store the next image before deleting the current image
+                            const nextImage = zoomedImage.nextElementSibling;
+
+                            // Send a message to the server to delete the zoomed image
+                            socket.emit('deleteImage', zoomedImage.src);
+
+                            // Remove the zoomed image from the DOM
+                            zoomedImage.remove();
+                            // Reset zoomed state
+                            isZoomed = false;
+                            zoomedImage = null;
+
+                            // Go to the next zoomed image as if the right arrow were pressed
+                            if (nextImage) {
+                                // Create a custom event object for the next image
+                                const zoomInEvent = { target: nextImage };
+                                // Zoom in the next image
+                                zoom(zoomInEvent);
+                            }
+                        }
+                    }
+                    lastKeyPressTime = currentTime;
+                    lastKeyPressed = event.key;
+                }
+            } else {
+                if (event.code === 'ArrowRight') {
+                    window.scrollBy(0, window.innerHeight + 10);
+                }
+                if (event.code === 'ArrowLeft') {
+                    window.scrollBy(0, -(window.innerHeight + 10));
+                }
+            }
+        });
+
+
+
+
+    </script>
+</body>
+
+</html>
