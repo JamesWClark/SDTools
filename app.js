@@ -8,11 +8,6 @@ const https = require('https');
 const http = require('http');
 const { exec } = require('child_process');
 
-const serverOptions = {
-  key: fs.readFileSync(path.join(__dirname, 'bin/server.key')),
-  cert: fs.readFileSync(path.join(__dirname, 'bin/server.crt'))
-};
-
 const server = http.createServer(app);
 const io = socketIo(server);
 
@@ -20,7 +15,6 @@ const io = socketIo(server);
 const iplist = ['::ffff:192.168.86.181', '127.0.0.1', '::ffff:192.168.86.', '::ffff:192.168.86.234', '86:2c:f2:62:e6:', '192.168.86.181', '::1'];
 
 app.use('/txt2img-images', express.static(path.join(__dirname, '..', 'outputs', 'txt2img-images')));
-
 
 // Set up IP filtering middleware
 app.use(ipfilter(iplist, {
