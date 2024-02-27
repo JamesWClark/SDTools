@@ -7,6 +7,8 @@ const socketIo = require('socket.io');
 const https = require('https');
 const http = require('http');
 const { exec } = require('child_process');
+const { program } = require('commander');
+const prompt = require('prompt-sync')({sigint: true});
 
 const server = http.createServer(app);
 const io = socketIo(server);
@@ -49,12 +51,14 @@ io.on('connection', (socket) => {
     .then(data => {
       let i = 0;
       let count = 0;
-      while (i++ < data.length && count++ < load_limit) {
+      while (i < data.length && count < load_limit) {
         // Send the image to the client
         // const imagePath = `../outputs/txt2img-images/${today}/${data[i]}`;
         // const imageBuffer = fs.readFileSync(imagePath);
         // const imageData = Buffer.from(imageBuffer).toString('base64');
         socket.emit('image', `/txt2img-images/${today}/${data[i]}`);
+        
+        i++; count++;
       }
     })
 
@@ -111,6 +115,18 @@ async function ls(path) {
 app.get('/', (req, res) => {
   res.status(200).sendFile(path.join(__dirname, 'index.html'));
 });
+
+program
+  .option('-p, --password', 'Prompt for password')
+  .parse(process.argv);
+
+let password = null;
+
+if (program.opts().password) {
+  password = prompt.hide('Password: ');
+  console.log('Password entered:', password);
+  // Use the password for encryption
+}
 
 const port = 8000;
 server.listen(port, () => {
