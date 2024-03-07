@@ -6,6 +6,7 @@ const ipfilter = require('express-ipfilter').IpFilter;
 const socketIo = require('socket.io');
 const https = require('https');
 const http = require('http');
+const crypto = require('crypto');
 const { exec } = require('child_process');
 const { program } = require('commander');
 const prompt = require('prompt-sync')({sigint: true});
@@ -15,6 +16,46 @@ const io = socketIo(server);
 
 // Define the IP address to allow
 const iplist = ['::ffff:192.168.86.181', '127.0.0.1', '::ffff:192.168.86.', '::ffff:192.168.86.234', '86:2c:f2:62:e6:', '192.168.86.181', '::1'];
+
+function encryptFile(filePath) {
+  const key = crypto.randomBytes(32); // Generate a new key for each file
+  const data = fs.readFileSync(filePath);
+  const cipher = crypto.createCipheriv('aes-256-cbc', key, Buffer.alloc(16, 0));
+  const encrypted = Buffer.concat([cipher.update(data), cipher.final()]);
+  fs.writeFileSync(filePath, encrypted);
+}
+
+function secureDeleteDirectory(directoryPath) {
+  if (fs.lstatSync(directoryPath).isFile()) {
+    encryptFile(directoryPath);
+    exec(`sdelete -p 3 -s -q ${directoryPath}`, (error, stdout, stderr) => {
+      if (error) {
+        console.log(`Error deleting file: ${directoryPath}`);
+        console.log(stderr);
+      } else {
+        console.log(`File deleted: ${directoryPath}`);
+      }
+    });
+    return;
+  }
+
+  fs.readdirSync(directoryPath).forEach((file) => {
+    const filePath = path.join(directoryPath, file);
+    if (fs.lstatSync(filePath).isDirectory()) {
+      secureDeleteDirectory(filePath);
+    } else {
+      encryptFile(filePath);
+      exec(`sdelete -p 3 -s -q ${filePath}`, (error, stdout, stderr) => {
+        if (error) {
+          console.log(`Error deleting file: ${filePath}`);
+          console.log(stderr);
+        } else {
+          console.log(`File deleted: ${filePath}`);
+        }
+      });
+    }
+  });
+}
 
 app.use('/txt2img-images', express.static(path.join(__dirname, '..', 'outputs', 'txt2img-images')));
 
@@ -75,7 +116,7 @@ io.on('connection', (socket) => {
 
   socket.on('deleteImage', (imageSrc) => {
     // Extract the image filename from the image source
-    const imageFilename = imageSrc.split('/').pop();
+    const imageFilename = path.basename(imageSrc);
     // Construct the image path
     const imagePath = path.join(__dirname, '..', 'outputs', 'txt2img-images', today, imageFilename);
     // Construct the absolute path to the file
@@ -83,15 +124,7 @@ io.on('connection', (socket) => {
 
     // Check if the file exists
     if (fs.existsSync(absoluteImagePath)) {
-      exec(`sdelete -p 3 -s -q ${absoluteImagePath}`, (err, stdout, stderr) => {
-        if (err) {
-          console.error(`Failed to delete image: ${err}`);
-          return;
-        }
-
-        console.log(`stdout: ${stdout}`);
-        console.log(`stderr: ${stderr}`);
-      });
+      secureDeleteDirectory(absoluteImagePath);
     } else {
       console.error(`File does not exist: ${absoluteImagePath}`);
     }
