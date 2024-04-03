@@ -5,9 +5,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Document</title>
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/twitter-bootstrap/5.1.0/css/bootstrap.min.css"
-        integrity="sha512-2QJL5jZzqyJZJQ1xJ8v9jZzvWJv6J0sJ7wJ+JgJZzjJ9z5J5zvJ8J9z7vJqZJzJZ9z8z3QJz5v5vJz4zJzJjCw=="
-        crossorigin="anonymous" referrerpolicy="no-referrer" />
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/twitter-bootstrap/5.1.0/css/bootstrap.min.css" />
     <style>
         img {
             height: 100vh;
@@ -38,6 +36,7 @@
 </head>
 
 <body>
+    <div id="pasteButton">Paste</div>
     <div id="image-container"></div>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.2/socket.io.min.js"
         integrity="sha512-Xm9qbB6Pu06k3PUwPj785dyTl6oHxgsv9nHp7ej7nCpAqGZT3OZpsELuCYX05DdonFpTlBpXMOxjavIAIUwr0w=="
@@ -58,6 +57,21 @@
         socket.on('connect', () => {
             console.log('WebSocket connected');
         });
+
+        function getFileExtension(file) {
+            switch (file.type) {
+                case 'image/jpeg':
+                    return '.jpg';
+                case 'image/png':
+                    return '.png';
+                case 'image/gif':
+                    return '.gif';
+                case 'image/webp':
+                    return '.webp';
+                default:
+                    return '';
+            }
+        }
 
         function zoom(event) {
             if (isZoomed) {
@@ -112,6 +126,75 @@
 
         socket.on('disconnect', () => {
             console.log('WebSocket disconnected');
+        });
+
+        document.addEventListener('paste', (event) => {
+            const items = (event.clipboardData || window.clipboardData).items;
+            for (let i = 0; i < items.length; i++) {
+                if (items[i].type.indexOf('image') !== -1) {
+                    const blob = items[i].getAsFile();
+                    const extension = getFileExtension(blob); // Get the file extension based on the MIME type
+                    const filename = Date.now() + extension; // Generate a unique filename based on the current timestamp
+                    const reader = new FileReader();
+                    reader.onload = function(e) {
+                        const img = document.createElement('img');
+                        img.src = e.target.result;
+                        img.addEventListener('click', zoom);
+                        const container = document.querySelector('#image-container');
+                        container.insertBefore(img, container.firstChild);
+                        // Send the image to the backend
+                        const formData = new FormData();
+                        formData.append('image', blob, filename);
+                        fetch('/upload', {
+                            method: 'POST',
+                            body: formData
+                        }).then(response => {
+                            if (!response.ok) {
+                                throw new Error('Network response was not ok');
+                            }
+                            return response.json();
+                        }).then(data => {
+                            console.log('Image uploaded successfully');
+                        }).catch(error => {
+                            console.error('Error:', error);
+                        });
+                    };
+                    reader.readAsDataURL(blob);
+                }
+            }
+        });
+
+        // requires secure origin or localhost
+        document.getElementById('pasteButton').addEventListener('click', async () => {
+            if (!navigator.clipboard) {
+                console.log('clipboard api not available');
+                return;
+            }
+
+            try {
+                const items = await navigator.clipboard.read();
+                for (const item of items) {
+                    for (const type of item.types) {
+                        if (type.indexOf('image') !== -1) {
+                            const blob = await item.getType(type);
+                            const reader = new FileReader();
+                            reader.onload = function(e) {
+                                const img = document.createElement('img');
+                                img.src = e.target.result;
+                                img.addEventListener('click', zoom);
+                                const container = document.querySelector('#image-container');
+                                container.insertBefore(img, container.firstChild);
+                                // Send the image to the backend
+                                console.log('sent to back end');
+                                socket.emit('image-paste', blob);
+                            };
+                            reader.readAsDataURL(blob);
+                        }
+                    }
+                }
+            } catch (err) {
+                console.error(err.name, err.message);
+            }
         });
 
         document.addEventListener('keydown', (event) => {

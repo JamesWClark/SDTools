@@ -10,6 +10,8 @@ const crypto = require('crypto');
 const { exec } = require('child_process');
 const { program } = require('commander');
 const prompt = require('prompt-sync')({sigint: true});
+const sharp = require('sharp');
+const multer = require('multer');
 
 const server = http.createServer(app);
 const io = socketIo(server);
@@ -76,6 +78,30 @@ app.use(ipfilter(iplist, {
 
 app.use(express.static(path.join(__dirname, '..', 'outputs')));
 
+const storage = multer.diskStorage({
+  destination: function (req, file, cb) {
+    cb(null, '../outputs/pastes/')
+  },
+  filename: function (req, file, cb) {
+    cb(null, file.originalname)
+  }
+})
+
+const upload = multer({ storage: storage })
+
+// Handle POST requests to the '/upload' endpoint
+app.post('/upload', upload.single('image'), (req, res) => {
+  // req.file is the 'image' file
+  // req.body will hold the text fields, if there were any
+  console.log(req.file);
+
+  // You can now do whatever you want with the uploaded file,
+  // such as save it to a database, process it, etc.
+  // For this example, we'll just send a success response.
+
+  res.json({ message: 'Image uploaded successfully' });
+});
+
 io.on('connection', (socket) => {
   console.log('WebSocket connected');
 
@@ -103,6 +129,15 @@ io.on('connection', (socket) => {
       }
     })
 
+  // Define the directory path
+  const dirPath = `../outputs/txt2img-images/${today}`;
+
+  // Check if the directory exists
+  if (!fs.existsSync(dirPath)) {
+    // Create the directory if it doesn't exist
+    fs.mkdirSync(dirPath, { recursive: true });
+  }
+
   // Watch the folder for changes
   const watcher = fs.watch(`../outputs/txt2img-images/${today}`);
   watcher.on('change', (eventType, filename) => {
@@ -128,6 +163,37 @@ io.on('connection', (socket) => {
     } else {
       console.error(`File does not exist: ${absoluteImagePath}`);
     }
+  });
+
+  socket.on('image-paste', async (blob) => {
+    // Convert the blob to a Buffer
+    const buffer = Buffer.from(blob);
+  
+    // Resize the image
+    const resizedBuffer = await sharp(buffer)
+      .resize(800, 800, {
+        fit: 'inside',
+        withoutEnlargement: true,
+      })
+      .toBuffer();
+  
+    // Define the directory path
+    const dirPath = path.join(__dirname, '../outputs/pastes');
+  
+    // Check if the directory exists
+    if (!fs.existsSync(dirPath)) {
+      // Create the directory if it doesn't exist
+      fs.mkdirSync(dirPath, { recursive: true });
+    }
+  
+    // Generate a unique filename for the image
+    const filename = `${Date.now()}.png`;
+  
+    // Define the image path
+    const imagePath = path.join(dirPath, filename);
+  
+    // Write the image to the file
+    fs.writeFileSync(imagePath, resizedBuffer);
   });
 
   socket.on('disconnect', () => {
