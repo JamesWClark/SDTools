@@ -137,11 +137,6 @@
                     const filename = Date.now() + extension; // Generate a unique filename based on the current timestamp
                     const reader = new FileReader();
                     reader.onload = function(e) {
-                        const img = document.createElement('img');
-                        img.src = e.target.result;
-                        img.addEventListener('click', zoom);
-                        const container = document.querySelector('#image-container');
-                        container.insertBefore(img, container.firstChild);
                         // Send the image to the backend
                         const formData = new FormData();
                         formData.append('image', blob, filename);
@@ -155,6 +150,11 @@
                             return response.json();
                         }).then(data => {
                             console.log('Image uploaded successfully');
+                            const img = document.createElement('img');
+                            img.src = e.target.result;
+                            img.addEventListener('click', zoom);
+                            const container = document.querySelector('#image-container');
+                            container.insertBefore(img, container.firstChild);
                         }).catch(error => {
                             console.error('Error:', error);
                         });

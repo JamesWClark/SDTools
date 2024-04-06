@@ -78,12 +78,19 @@ app.use(ipfilter(iplist, {
 
 app.use(express.static(path.join(__dirname, '..', 'outputs')));
 
+const pastesDir = path.join(__dirname, '../outputs/pastes/');
+
+// Create the output directory if it does not exist
+if (!fs.existsSync(pastesDir)) {
+  fs.mkdirSync(pastesDir, { recursive: true });
+}
+
 const storage = multer.diskStorage({
   destination: function (req, file, cb) {
-    cb(null, '../outputs/pastes/')
+      cb(null, pastesDir)
   },
   filename: function (req, file, cb) {
-    cb(null, file.originalname)
+      cb(null, file.originalname)
   }
 })
 
@@ -128,6 +135,22 @@ io.on('connection', (socket) => {
         i++; count++;
       }
     })
+
+  // Send the images in the pastes directory to the client
+  fs.readdir(pastesDir, (err, files) => {
+    if (err) {
+      console.error(err);
+    } else {
+      let i = 0;
+      let count = 0;
+      while (i < files.length && count < load_limit) {
+        // Send the image to the client
+        socket.emit('image', `/pastes/${files[i]}`);
+        
+        i++; count++;
+      }
+    }
+  });
 
   // Define the directory path
   const dirPath = `../outputs/txt2img-images/${today}`;

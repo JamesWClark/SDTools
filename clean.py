@@ -38,10 +38,11 @@ def secure_delete_directory(directory_path):
 
 if __name__ == '__main__':
     if len(sys.argv) != 2:
-        directory_path = 'C:/Users/JWC/git/stable-diffusion-webui/outputs'
+        directory_paths = ['../outputs', 'C:/Users/JWC/git/Forge/output', 'C:/Users/JWC/git/Fooocus_win64_2-1-831/Fooocus/outputs']
+        for directory_path in directory_paths:
+            secure_delete_directory(directory_path)
     else:
         directory_path = sys.argv[1]
 
-secure_delete_directory(directory_path)
-secure_delete_directory('C:/Users/JWC/Pictures/Screenshots')
+
 sys.exit(1)
