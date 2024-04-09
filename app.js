@@ -59,7 +59,7 @@ function secureDeleteDirectory(directoryPath) {
   });
 }
 
-app.use('/txt2img-images', express.static(path.join(__dirname, '..', 'outputs', 'txt2img-images')));
+app.use('/output', express.static(path.join(__dirname, '..', 'output')));
 
 // Set up IP filtering middleware
 app.use(ipfilter(iplist, {
@@ -76,9 +76,9 @@ app.use(ipfilter(iplist, {
   }
 }));
 
-app.use(express.static(path.join(__dirname, '..', 'outputs')));
+app.use(express.static(path.join(__dirname, '..', 'output')));
 
-const pastesDir = path.join(__dirname, '../outputs/pastes/');
+const pastesDir = path.join(__dirname, '../output/pastes/');
 
 // Create the output directory if it does not exist
 if (!fs.existsSync(pastesDir)) {
@@ -121,20 +121,52 @@ io.on('connection', (socket) => {
   // const today = '2024-01-25';
 
   const load_limit = 4000;
-  ls(`../outputs/txt2img-images/${today}`).catch(console.error)
+  function readDirRecursively(dir, prefix = '') {
+    return new Promise((resolve, reject) => {
+      fs.readdir(dir, (err, files) => {
+        if (err) {
+          reject(err);
+          return;
+        }
+
+        Promise.all(files.map(file => {
+          return new Promise((resolve, reject) => {
+            let filepath = path.join(dir, file);
+
+            fs.stat(filepath, (err, stats) => {
+              if (err) {
+                reject(err);
+                return;
+              }
+
+              if (stats.isDirectory()) {
+                readDirRecursively(filepath, path.join(prefix, file)).then(resolve);
+              } else if (stats.isFile()) {
+                // Normalize the file path and replace backslashes with forward slashes
+                filepath = path.normalize(path.join(prefix, file)).replace(/\\/g, '/');
+                resolve(filepath);
+              }
+            });
+          });
+        }))
+        .then(foldersContents => {
+          resolve(foldersContents.reduce((all, folderContents) => all.concat(folderContents), []));
+        });
+      });
+    });
+  }
+
+  readDirRecursively('../output/txt2img-images/', 'txt2img-images')
     .then(data => {
       let i = 0;
       let count = 0;
       while (i < data.length && count < load_limit) {
         // Send the image to the client
-        // const imagePath = `../outputs/txt2img-images/${today}/${data[i]}`;
-        // const imageBuffer = fs.readFileSync(imagePath);
-        // const imageData = Buffer.from(imageBuffer).toString('base64');
-        socket.emit('image', `/txt2img-images/${today}/${data[i]}`);
-        
+        socket.emit('image', data[i]);
         i++; count++;
       }
     })
+    .catch(console.error);
 
   // Send the images in the pastes directory to the client
   fs.readdir(pastesDir, (err, files) => {
@@ -153,7 +185,7 @@ io.on('connection', (socket) => {
   });
 
   // Define the directory path
-  const dirPath = `../outputs/txt2img-images/${today}`;
+  const dirPath = `../output/txt2img-images/${today}`;
 
   // Check if the directory exists
   if (!fs.existsSync(dirPath)) {
@@ -162,10 +194,10 @@ io.on('connection', (socket) => {
   }
 
   // Watch the folder for changes
-  const watcher = fs.watch(`../outputs/txt2img-images/${today}`);
+  const watcher = fs.watch(`../output/txt2img-images/${today}`);
   watcher.on('change', (eventType, filename) => {
     if (eventType === 'rename' && filename.endsWith('.png')) {
-      const imagePath = `../outputs/txt2img-images/${today}/${filename}`;
+      const imagePath = `../output/txt2img-images/${today}/${filename}`;
       const imageBuffer = fs.readFileSync(imagePath);
       const imageData = Buffer.from(imageBuffer).toString('base64');
       socket.emit('image', `data:image/png;base64,${imageData}`);
@@ -173,13 +205,20 @@ io.on('connection', (socket) => {
   });
 
   socket.on('deleteImage', (imageSrc) => {
-    // Extract the image filename from the image source
-    const imageFilename = path.basename(imageSrc);
+    // Create a URL object from the image source
+    const url = new URL(imageSrc);
+    // Extract the pathname from the URL
+    const pathname = url.pathname;
+    // Extract the relative path from the pathname
+    const relativePath = pathname.replace('/txt2img-images/', '');
+    // Extract the date from the relative path
+    const date = relativePath.split('/')[0];
+    // Extract the image filename from the pathname
+    const imageFilename = path.basename(pathname);
     // Construct the image path
-    const imagePath = path.join(__dirname, '..', 'outputs', 'txt2img-images', today, imageFilename);
+    const imagePath = path.join(__dirname, '..', 'output', 'txt2img-images', date, imageFilename);
     // Construct the absolute path to the file
     const absoluteImagePath = path.resolve(__dirname, imagePath);
-
     // Check if the file exists
     if (fs.existsSync(absoluteImagePath)) {
       secureDeleteDirectory(absoluteImagePath);
@@ -201,7 +240,7 @@ io.on('connection', (socket) => {
       .toBuffer();
   
     // Define the directory path
-    const dirPath = path.join(__dirname, '../outputs/pastes');
+    const dirPath = path.join(__dirname, '../output/pastes');
   
     // Check if the directory exists
     if (!fs.existsSync(dirPath)) {
