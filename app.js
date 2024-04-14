@@ -59,7 +59,17 @@ function secureDeleteDirectory(directoryPath) {
   });
 }
 
-app.use('/output', express.static(path.join(__dirname, '..', 'output')));
+// Define the base directory
+const baseDir = path.join(__dirname, '..');
+
+// Check if 'outputs' directory exists
+if (fs.existsSync(path.join(baseDir, 'outputs'))) {
+  var outputDir = 'outputs';
+} else {
+  var outputDir = 'output';
+}
+
+app.use(outputDir, express.static(path.join(__dirname, '..', outputDir)));
 
 // Set up IP filtering middleware
 app.use(ipfilter(iplist, {
@@ -76,9 +86,9 @@ app.use(ipfilter(iplist, {
   }
 }));
 
-app.use(express.static(path.join(__dirname, '..', 'output')));
+app.use(express.static(path.join(__dirname, '..', outputDir)));
 
-const pastesDir = path.join(__dirname, '../output/pastes/');
+const pastesDir = path.join(__dirname, `../${outputDir}/pastes/`);
 
 // Create the output directory if it does not exist
 if (!fs.existsSync(pastesDir)) {
@@ -156,7 +166,7 @@ io.on('connection', (socket) => {
     });
   }
 
-  readDirRecursively('../output/txt2img-images/', 'txt2img-images')
+  readDirRecursively(`../${outputDir}/txt2img-images/`, 'txt2img-images')
     .then(data => {
       let i = 0;
       let count = 0;
@@ -185,7 +195,7 @@ io.on('connection', (socket) => {
   });
 
   // Define the directory path
-  const dirPath = `../output/txt2img-images/${today}`;
+  const dirPath = `../${outputDir}/txt2img-images/${today}`;
 
   // Check if the directory exists
   if (!fs.existsSync(dirPath)) {
@@ -194,10 +204,10 @@ io.on('connection', (socket) => {
   }
 
   // Watch the folder for changes
-  const watcher = fs.watch(`../output/txt2img-images/${today}`);
+  const watcher = fs.watch(`../${outputDir}/txt2img-images/${today}`);
   watcher.on('change', (eventType, filename) => {
     if (eventType === 'rename' && filename.endsWith('.png')) {
-      const imagePath = `../output/txt2img-images/${today}/${filename}`;
+      const imagePath = `../${outputDir}/txt2img-images/${today}/${filename}`;
       const imageBuffer = fs.readFileSync(imagePath);
       const imageData = Buffer.from(imageBuffer).toString('base64');
       socket.emit('image', `data:image/png;base64,${imageData}`);
@@ -216,7 +226,7 @@ io.on('connection', (socket) => {
     // Extract the image filename from the pathname
     const imageFilename = path.basename(pathname);
     // Construct the image path
-    const imagePath = path.join(__dirname, '..', 'output', 'txt2img-images', date, imageFilename);
+    const imagePath = path.join(__dirname, '..', outputDir, 'txt2img-images', date, imageFilename);
     // Construct the absolute path to the file
     const absoluteImagePath = path.resolve(__dirname, imagePath);
     // Check if the file exists
@@ -240,7 +250,7 @@ io.on('connection', (socket) => {
       .toBuffer();
   
     // Define the directory path
-    const dirPath = path.join(__dirname, '../output/pastes');
+    const dirPath = path.join(__dirname, `../${outputDir}/pastes`);
   
     // Check if the directory exists
     if (!fs.existsSync(dirPath)) {
