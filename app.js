@@ -204,16 +204,27 @@ io.on('connection', (socket) => {
     fs.mkdirSync(dirPath, { recursive: true });
   }
 
-  // Watch the folder for changes
-  const watcher = fs.watch(`../${outputDir}/txt2img-images/${today}`);
-  watcher.on('change', (eventType, filename) => {
-    if (eventType === 'rename' && filename.endsWith('.png')) {
-      const imagePath = `../${outputDir}/txt2img-images/${today}/${filename}`;
-      const imageBuffer = fs.readFileSync(imagePath);
-      const imageData = Buffer.from(imageBuffer).toString('base64');
-      socket.emit('image', `data:image/png;base64,${imageData}`);
-    }
-  });
+  // Function to create a watcher for a directory
+  function watchDirectory(directoryPath) {
+    const watcher = fs.watch(directoryPath);
+    watcher.on('change', (eventType, filename) => {
+      if (eventType === 'rename' && filename.endsWith('.png')) {
+        const imagePath = `${directoryPath}/${filename}`;
+        const imageBuffer = fs.readFileSync(imagePath);
+        const imageData = Buffer.from(imageBuffer).toString('base64');
+        socket.emit('image', `data:image/png;base64,${imageData}`);
+      }
+    });
+  }
+
+  // Example directories to watch
+  const directoriesToWatch = [
+    `../${outputDir}/txt2img-images/${today}`,
+    `../${outputDir}/pastes`,
+  ];
+
+  // Create a watcher for each directory
+  directoriesToWatch.forEach(watchDirectory);
 
   socket.on('deleteImage', (imageSrc) => {
     // Create a URL object from the image source

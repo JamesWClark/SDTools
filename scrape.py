@@ -4,20 +4,17 @@ import requests
 from bs4 import BeautifulSoup
 
 def scrape_links(url):
+    # https://rentry.org/NAIwildcards
     response = requests.get(url)
     soup = BeautifulSoup(response.text, 'html.parser')
-    
     dict_hrefs = {}
-
     second_paragraph = soup.select_one('.entry-text article div p:nth-of-type(2)')
     lines = second_paragraph.decode_contents().split('<br/>')
-
     for line in lines:
         if line:
             category, link_tag = line.strip().split(' - ')
             link = BeautifulSoup(link_tag, 'html.parser').a['href']
             dict_hrefs[category] = link
-
     return dict_hrefs
 
 def scrape_paste_bin(links):
@@ -59,9 +56,21 @@ def remove_blank_lines_in_folder(folder_path):
             with open(file_path, 'w') as f:
                 f.writelines(non_blank_lines)
 
-# get all these links from the home page
-links = scrape_links('https://rentry.org/NAIwildcards')
+def scrape_imdb(url):
+    response = requests.get(url)
+    soup = BeautifulSoup(response.text, 'html.parser')
+    names = soup.select('#main h3.lister-item-header a')
 
+    text = "{"
+    for name in names:
+        text += name.text.strip() + " | "
+    text = text[:-3] + "}"
+    print(text)
+
+scrape_imdb('https://www.imdb.com/list/ls071315232/')
+
+# get all these links from the home page
+# links = scrape_links('https://rentry.org/NAIwildcards')
 # download the content of each link
 # scrape_paste_bin(links)
 # scrape_rentry(links)

@@ -43,6 +43,7 @@ if __name__ == '__main__':
             secure_delete_directory(directory_path)
     else:
         directory_path = sys.argv[1]
+        secure_delete_directory(directory_path)
 
 
 sys.exit(1)

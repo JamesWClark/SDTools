@@ -180,6 +180,7 @@
                         var file = event.dataTransfer.items[i].getAsFile();
                         console.log('... file[' + i + '].name = ' + file.name);
                         uploadFile(file);
+                        displayImage(file); // Function to display the image
                     }
                 }
             } else {
@@ -187,9 +188,21 @@
                 for (let i = 0; i < event.dataTransfer.files.length; i++) {
                     console.log('... file[' + i + '].name = ' + event.dataTransfer.files[i].name);
                     uploadFile(event.dataTransfer.files[i]);
+                    displayImage(event.dataTransfer.files[i]); // Function to display the image
                 }
             }
         });
+
+        // Function to display the image
+        function displayImage(file) {
+            var img = document.createElement('img');
+            img.src = URL.createObjectURL(file);
+            img.onload = function() {
+                URL.revokeObjectURL(this.src); // Clean up memory (revoke the blob URL) after loading.
+            };
+            const container = document.querySelector('#image-container');
+            container.insertBefore(img, container.firstChild); // Insert the image at the beginning of the container
+        }
 
         function uploadFile(file) {
             let formData = new FormData();
