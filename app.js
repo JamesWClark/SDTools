@@ -111,6 +111,7 @@ app.post('/upload', upload.single('image'), (req, res) => {
   // req.file is the 'image' file
   // req.body will hold the text fields, if there were any
   console.log(req.file);
+  
 
   // You can now do whatever you want with the uploaded file,
   // such as save it to a database, process it, etc.

@@ -164,6 +164,46 @@
             }
         });
 
+        // Prevent default drag behaviors
+        document.addEventListener('dragover', function(event) {
+            event.preventDefault();
+        });
+
+        // Handle dropped image
+        document.addEventListener('drop', function(event) {
+            event.preventDefault();
+            if (event.dataTransfer.items) {
+                // Use DataTransferItemList interface to access the file(s)
+                for (let i = 0; i < event.dataTransfer.items.length; i++) {
+                    // If dropped items aren't files, reject them
+                    if (event.dataTransfer.items[i].kind === 'file') {
+                        var file = event.dataTransfer.items[i].getAsFile();
+                        console.log('... file[' + i + '].name = ' + file.name);
+                        uploadFile(file);
+                    }
+                }
+            } else {
+                // Use DataTransfer interface to access the file(s)
+                for (let i = 0; i < event.dataTransfer.files.length; i++) {
+                    console.log('... file[' + i + '].name = ' + event.dataTransfer.files[i].name);
+                    uploadFile(event.dataTransfer.files[i]);
+                }
+            }
+        });
+
+        function uploadFile(file) {
+            let formData = new FormData();
+            formData.append('image', file); // Changed 'file' to 'image' to match the server expectation
+
+            fetch('/upload', {
+                method: 'POST',
+                body: formData,
+            })
+            .then(response => response.json())
+            .then(data => console.log(data))
+            .catch(error => console.error('Error:', error));
+        }
+
         // requires secure origin or localhost
         document.getElementById('pasteButton').addEventListener('click', async () => {
             if (!navigator.clipboard) {
