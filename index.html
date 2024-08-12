@@ -52,7 +52,7 @@
         // scroll to top
         window.onbeforeunload = function () { window.scrollTo(0, 0); }
 
-        const socket = io('http://192.168.86.181:8000');
+        const socket = io('http://192.168.0.167:8000');
 
         socket.on('connect', () => {
             console.log('WebSocket connected');

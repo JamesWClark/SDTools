@@ -38,7 +38,7 @@ def secure_delete_directory(directory_path):
 
 if __name__ == '__main__':
     if len(sys.argv) != 2:
-        directory_paths = ['../outputs', 'C:/Users/JWC/git/Forge/output', 'C:/Users/JWC/git/Fooocus_win64_2-1-831/Fooocus/outputs']
+        directory_paths = ['../outputs']
         for directory_path in directory_paths:
             secure_delete_directory(directory_path)
     else:
