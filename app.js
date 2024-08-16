@@ -10,7 +10,9 @@ const { program } = require('commander');
 const prompt = require('prompt-sync')({ sigint: true });
 const sharp = require('sharp');
 const multer = require('multer');
+const os = require('os');
 
+const networkInterfaces = os.networkInterfaces();
 const server = http.createServer(app);
 const io = socketIo(server);
 
@@ -228,6 +230,18 @@ app.get('/', (req, res) => {
   res.status(200).sendFile(path.join(__dirname, 'index.html'));
 });
 
+function getLocalIPAddress() {
+  for (const interfaceName in networkInterfaces) {
+    const interfaces = networkInterfaces[interfaceName];
+    for (const iface of interfaces) {
+      if (iface.family === 'IPv4' && !iface.internal) {
+        return iface.address;
+      }
+    }
+  }
+  return '127.0.0.1'; // Fallback to localhost if no IP found
+}
+
 program
   .option('-p, --password', 'Prompt for password')
   .parse(process.argv);
@@ -239,9 +253,10 @@ if (program.opts().password) {
   console.log('Password entered:', password);
 }
 
+const ipAddress = getLocalIPAddress();
 const port = 8000;
 server.listen(port, () => {
-  console.log('Server listening on port ' + port);
+  console.log(`Server is running at http://${ipAddress}:${port}`);
 });
 
 process.on('uncaughtException', (err) => {
