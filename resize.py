@@ -19,7 +19,8 @@ def resize_images(dir_path, max_dimension, target_ext):
 
     # Iterate over each file in the directory
     for filename in os.listdir(dir_path):
-        if filename.endswith(".jpg") or filename.endswith(".png"):
+        filename = filename.lower()
+        if filename.endswith(".jpg") or filename.endswith(".png") or filename.endswith(".jpeg"):
             # Open the image file
             img_path = os.path.join(dir_path, filename)
             img = Image.open(img_path)
