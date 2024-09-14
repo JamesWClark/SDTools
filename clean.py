@@ -3,14 +3,16 @@ import os
 import sys
 import subprocess
 import argparse
+from collections import defaultdict
+from tqdm import tqdm
 
 # Generate a key and create a cipher suite
 key = Fernet.generate_key()
 cipher_suite = Fernet(key)
 
 error_files = []
-deleted_files = []
-deleted_dirs = []
+deleted_files_count = defaultdict(int)
+deleted_dirs_count = defaultdict(int)
 
 def encrypt_file(file_path):
     try:
@@ -23,6 +25,10 @@ def encrypt_file(file_path):
         error_files.append((file_path, str(e)))
 
 def secure_delete_directory(directory_path, verbose=False):
+    # Count total files and directories for progress bar
+    total_items = sum([len(files) + len(dirs) for _, dirs, files in os.walk(directory_path)])
+    progress_bar = tqdm(total=total_items, desc=f"Processing {directory_path}", unit="item")
+
     # recursively delete all files and directories
     for root, dirs, files in os.walk(directory_path, topdown=False):
         for file in files:
@@ -31,7 +37,7 @@ def secure_delete_directory(directory_path, verbose=False):
             try:
                 result = subprocess.run(['sdelete', '-p', '3', '-s', '-q', file_path], capture_output=True)
                 if result.returncode == 0:
-                    deleted_files.append(file_path)
+                    deleted_files_count[directory_path] += 1
                     if verbose:
                         print('File deleted:', file_path)
                 else:
@@ -44,13 +50,14 @@ def secure_delete_directory(directory_path, verbose=False):
                 error_files.append((file_path, str(e)))
                 if verbose:
                     print(f"Error deleting file {file_path}: {e}")
+            progress_bar.update(1)
         for dir in dirs:
             dir_path = os.path.join(root, dir)
             if dir_path != directory_path:
                 try:
                     result = subprocess.run(['sdelete', '-p', '3', '-s', '-q', dir_path], capture_output=True)
                     if result.returncode == 0:
-                        deleted_dirs.append(dir_path)
+                        deleted_dirs_count[directory_path] += 1
                         if verbose:
                             print('Directory deleted:', dir_path)
                     else:
@@ -63,6 +70,8 @@ def secure_delete_directory(directory_path, verbose=False):
                     error_files.append((dir_path, str(e)))
                     if verbose:
                         print(f"Error deleting directory {dir_path}: {e}")
+                progress_bar.update(1)
+    progress_bar.close()
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Securely delete files and directories.')
@@ -85,14 +94,14 @@ if __name__ == '__main__':
 
     # Print error files and final report after a blank line
     print("\nFinal Report:")
-    if deleted_files:
-        print("\nDeleted files:")
-        for file_path in deleted_files:
-            print(file_path)
-    if deleted_dirs:
-        print("\nDeleted directories:")
-        for dir_path in deleted_dirs:
-            print(dir_path)
+    if deleted_files_count:
+        print("\nDeleted files summary:")
+        for dir_path, count in deleted_files_count.items():
+            print(f"{dir_path}: {count} files")
+    if deleted_dirs_count:
+        print("\nDeleted directories summary:")
+        for dir_path, count in deleted_dirs_count.items():
+            print(f"{dir_path}: {count} directories")
     if error_files:
         print("\nError files and directories:")
         for file_path, error in error_files:
