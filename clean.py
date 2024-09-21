@@ -14,6 +14,18 @@ error_files = []
 deleted_files_count = defaultdict(int)
 deleted_dirs_count = defaultdict(int)
 
+def clear_explorer_history():
+    script_path = os.path.join(os.path.dirname(__file__), 'clear_explorer_history.ps1')
+    try:
+        result = subprocess.run(['powershell', '-ExecutionPolicy', 'Bypass', '-File', script_path], capture_output=True)
+        if result.returncode == 0:
+            print("File Explorer history cleared successfully.")
+        else:
+            error_message = result.stderr.decode()
+            print("Error clearing File Explorer history:", error_message)
+    except Exception as e:
+        print(f"Error executing PowerShell script: {e}")
+
 def encrypt_file(file_path):
     try:
         with open(file_path, 'rb') as file:
@@ -84,13 +96,15 @@ if __name__ == '__main__':
             '../outputs',
             'C:\\Windows\\Temp',
             os.path.join(os.getenv('LOCALAPPDATA'), 'Temp'),
-            os.path.join(os.getenv('LOCALAPPDATA'), 'Google', 'Chrome', 'User Data', 'Default', 'Cache'),
-            os.path.join(os.getenv('LOCALAPPDATA'), 'Mozilla', 'Firefox', 'Profiles')
+            # os.path.join(os.getenv('LOCALAPPDATA'), 'Google', 'Chrome', 'User Data', 'Default', 'Cache'),
+            # os.path.join(os.getenv('LOCALAPPDATA'), 'Mozilla', 'Firefox', 'Profiles')
         ]
         for directory_path in directory_paths:
             secure_delete_directory(directory_path, args.verbose)
     else:
         secure_delete_directory(args.directory, args.verbose)
+
+    clear_explorer_history()
 
     # Print error files and final report after a blank line
     print("\nFinal Report:")
