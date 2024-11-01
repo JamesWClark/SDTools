@@ -84,8 +84,10 @@ if __name__ == '__main__':
             '../outputs',
             'C:\\Windows\\Temp',
             os.path.join(os.getenv('LOCALAPPDATA'), 'Temp'),
-            os.path.join(os.getenv('LOCALAPPDATA'), 'Google', 'Chrome', 'User Data', 'Default', 'Cache'),
-            os.path.join(os.getenv('LOCALAPPDATA'), 'Mozilla', 'Firefox', 'Profiles')
+            os.path.join(os.getenv('USERPROFILE'), '.cache', 'lm-studio', 'user-files'),
+            os.path.join(os.getenv('LOCALAPPDATA'), 'Packages', 'Microsoft.ScreenSketch_8wekyb3d8bbwe', 'TempState', 'Snips'),
+            # os.path.join(os.getenv('LOCALAPPDATA'), 'Google', 'Chrome', 'User Data', 'Default', 'Cache'),
+            # os.path.join(os.getenv('LOCALAPPDATA'), 'Mozilla', 'Firefox', 'Profiles')
         ]
         for directory_path in directory_paths:
             secure_delete_directory(directory_path, args.verbose)
