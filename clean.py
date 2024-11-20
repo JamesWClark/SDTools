@@ -5,7 +5,6 @@ import subprocess
 import argparse
 from collections import defaultdict
 from tqdm import tqdm
-import ctypes
 
 # Generate a key and create a cipher suite
 key = Fernet.generate_key()
@@ -69,12 +68,6 @@ def secure_delete_directory(directory_path, verbose=False):
                 progress_bar.update(1)
     progress_bar.close()
 
-def is_admin():
-    try:
-        return os.getuid() == 0
-    except AttributeError:
-        return ctypes.windll.shell32.IsUserAnAdmin() != 0
-
 def check_trim_status():
     try:
         result = subprocess.run(['fsutil', 'behavior', 'query', 'disabledeletenotify'], capture_output=True, text=True)
@@ -91,12 +84,6 @@ def check_trim_status():
         print(f"Error checking TRIM status: {e}")
 
 if __name__ == '__main__':
-    if not is_admin():
-        print("Requesting administrative privileges...")
-        params = ' '.join([sys.executable] + sys.argv)
-        ctypes.windll.shell32.ShellExecuteW(None, "runas", sys.executable, params, None, 1)
-        sys.exit()
-
     parser = argparse.ArgumentParser(description='Securely delete files and directories.')
     parser.add_argument('-v', '--verbose', action='store_true', help='Enable verbose logging')
     parser.add_argument('directory', nargs='?', default=None, help='Directory to delete')
