@@ -5,6 +5,7 @@ import subprocess
 import argparse
 from collections import defaultdict
 from tqdm import tqdm
+import ctypes
 
 # Generate a key and create a cipher suite
 key = Fernet.generate_key()
@@ -68,26 +69,34 @@ def secure_delete_directory(directory_path, verbose=False):
                 progress_bar.update(1)
     progress_bar.close()
 
-def issue_trim_command():
+def is_admin():
     try:
-        # Check if running as administrator
-        if not os.geteuid() == 0:
-            print("You need to run this script as an administrator to issue the TRIM command.")
-            return
-
-        # Issue the TRIM command
-        result = subprocess.run(['fsutil', 'behavior', 'set', 'disabledeletenotify', '0'], capture_output=True)
-        if result.returncode == 0:
-            print("TRIM command issued successfully.")
-        else:
-            print("Failed to issue TRIM command.")
-            print(result.stderr.decode())
+        return os.getuid() == 0
     except AttributeError:
-        print("This script must be run with administrative privileges.")
+        return ctypes.windll.shell32.IsUserAnAdmin() != 0
+
+def check_trim_status():
+    try:
+        result = subprocess.run(['fsutil', 'behavior', 'query', 'disabledeletenotify'], capture_output=True, text=True)
+        if result.returncode == 0:
+            output = result.stdout.strip()
+            if "DisableDeleteNotify = 0" in output:
+                print("TRIM is enabled.")
+            else:
+                print("\033[91mTRIM is not enabled. Please run 'fsutil behavior set disabledeletenotify 0' as an administrator to enable TRIM.\033[0m")
+        else:
+            print("Failed to check TRIM status.")
+            print(result.stderr)
     except Exception as e:
-        print(f"Error issuing TRIM command: {e}")
-        
+        print(f"Error checking TRIM status: {e}")
+
 if __name__ == '__main__':
+    if not is_admin():
+        print("Requesting administrative privileges...")
+        params = ' '.join([sys.executable] + sys.argv)
+        ctypes.windll.shell32.ShellExecuteW(None, "runas", sys.executable, params, None, 1)
+        sys.exit()
+
     parser = argparse.ArgumentParser(description='Securely delete files and directories.')
     parser.add_argument('-v', '--verbose', action='store_true', help='Enable verbose logging')
     parser.add_argument('directory', nargs='?', default=None, help='Directory to delete')
@@ -106,8 +115,8 @@ if __name__ == '__main__':
     else:
         secure_delete_directory(args.directory, args.verbose)
 
-    # Issue TRIM command at the end
-    issue_trim_command()
+    # Check TRIM status at the end
+    check_trim_status()
 
     print("\nFinal Report:")
     if deleted_files_count:
