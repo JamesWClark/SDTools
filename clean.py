@@ -24,28 +24,30 @@ def encrypt_file(file_path):
     except Exception as e:
         error_files.append((file_path, str(e)))
 
+def overwrite_file(file_path, passes=3):
+    try:
+        with open(file_path, 'r+b') as file:
+            length = os.path.getsize(file_path)
+            for _ in range(passes):
+                file.seek(0)
+                file.write(os.urandom(length))
+    except Exception as e:
+        error_files.append((file_path, str(e)))
+
 def secure_delete_directory(directory_path, verbose=False):
-    # Count total files and directories for progress bar
     total_items = sum([len(files) + len(dirs) for _, dirs, files in os.walk(directory_path)])
     progress_bar = tqdm(total=total_items, desc=f"Processing {directory_path}", unit="item")
 
-    # recursively delete all files and directories
     for root, dirs, files in os.walk(directory_path, topdown=False):
         for file in files:
             file_path = os.path.join(root, file)
             encrypt_file(file_path)
+            overwrite_file(file_path)
             try:
-                result = subprocess.run(['sdelete', '-p', '3', '-s', '-q', file_path], capture_output=True)
-                if result.returncode == 0:
-                    deleted_files_count[directory_path] += 1
-                    if verbose:
-                        print('File deleted:', file_path)
-                else:
-                    error_message = result.stderr.decode()
-                    error_files.append((file_path, error_message))
-                    if verbose:
-                        print('Error deleting file:', file_path)
-                        print(error_message)
+                os.remove(file_path)
+                deleted_files_count[directory_path] += 1
+                if verbose:
+                    print('File deleted:', file_path)
             except Exception as e:
                 error_files.append((file_path, str(e)))
                 if verbose:
@@ -55,17 +57,10 @@ def secure_delete_directory(directory_path, verbose=False):
             dir_path = os.path.join(root, dir)
             if dir_path != directory_path:
                 try:
-                    result = subprocess.run(['sdelete', '-p', '3', '-s', '-q', dir_path], capture_output=True)
-                    if result.returncode == 0:
-                        deleted_dirs_count[directory_path] += 1
-                        if verbose:
-                            print('Directory deleted:', dir_path)
-                    else:
-                        error_message = result.stderr.decode()
-                        error_files.append((dir_path, error_message))
-                        if verbose:
-                            print('Error deleting directory:', dir_path)
-                            print(error_message)
+                    os.rmdir(dir_path)
+                    deleted_dirs_count[directory_path] += 1
+                    if verbose:
+                        print('Directory deleted:', dir_path)
                 except Exception as e:
                     error_files.append((dir_path, str(e)))
                     if verbose:
@@ -73,6 +68,25 @@ def secure_delete_directory(directory_path, verbose=False):
                 progress_bar.update(1)
     progress_bar.close()
 
+def issue_trim_command():
+    try:
+        # Check if running as administrator
+        if not os.geteuid() == 0:
+            print("You need to run this script as an administrator to issue the TRIM command.")
+            return
+
+        # Issue the TRIM command
+        result = subprocess.run(['fsutil', 'behavior', 'set', 'disabledeletenotify', '0'], capture_output=True)
+        if result.returncode == 0:
+            print("TRIM command issued successfully.")
+        else:
+            print("Failed to issue TRIM command.")
+            print(result.stderr.decode())
+    except AttributeError:
+        print("This script must be run with administrative privileges.")
+    except Exception as e:
+        print(f"Error issuing TRIM command: {e}")
+        
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Securely delete files and directories.')
     parser.add_argument('-v', '--verbose', action='store_true', help='Enable verbose logging')
@@ -86,15 +100,15 @@ if __name__ == '__main__':
             os.path.join(os.getenv('LOCALAPPDATA'), 'Temp'),
             os.path.join(os.getenv('USERPROFILE'), '.cache', 'lm-studio', 'user-files'),
             os.path.join(os.getenv('LOCALAPPDATA'), 'Packages', 'Microsoft.ScreenSketch_8wekyb3d8bbwe', 'TempState', 'Snips'),
-            # os.path.join(os.getenv('LOCALAPPDATA'), 'Google', 'Chrome', 'User Data', 'Default', 'Cache'),
-            # os.path.join(os.getenv('LOCALAPPDATA'), 'Mozilla', 'Firefox', 'Profiles')
         ]
         for directory_path in directory_paths:
             secure_delete_directory(directory_path, args.verbose)
     else:
         secure_delete_directory(args.directory, args.verbose)
 
-    # Print error files and final report after a blank line
+    # Issue TRIM command at the end
+    issue_trim_command()
+
     print("\nFinal Report:")
     if deleted_files_count:
         print("\nDeleted files summary:")
