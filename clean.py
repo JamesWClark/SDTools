@@ -42,7 +42,7 @@ def generate_random_string(length=12):
 def obfuscate_file_name(file_path):
     try:
         directory, original_name = os.path.split(file_path)
-        new_name = generate_random_string()
+        new_name = generate_random_string()  # No extension
         new_path = os.path.join(directory, new_name)
         os.rename(file_path, new_path)
         return new_path
@@ -168,6 +168,25 @@ def clear_icon_and_thumbnail_cache():
     except Exception as e:
         print(f"Error clearing icon or thumbnail cache: {e}")
 
+def clear_cmd_history():
+    try:
+        subprocess.run(['doskey', '/reinstall'], check=True)
+        print("CMD history cleared.")
+    except Exception as e:
+        print(f"Error clearing CMD history: {e}")
+
+def clear_powershell_history():
+    try:
+        ps_history_path = os.path.join(os.getenv('APPDATA'), 'Microsoft', 'Windows', 'PowerShell', 'PSReadline', 'ConsoleHost_history.txt')
+        if os.path.exists(ps_history_path):
+            encrypt_file(ps_history_path)
+            overwrite_file(ps_history_path)
+            print("PowerShell history cleared.")
+        else:
+            print("PowerShell history file not found.")
+    except Exception as e:
+        print(f"Error clearing PowerShell history: {e}")
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Securely delete files and directories.')
     parser.add_argument('-v', '--verbose', action='store_true', help='Enable verbose logging')
@@ -192,6 +211,8 @@ if __name__ == '__main__':
     clear_event_logs()
     clear_temp_files()
     clear_icon_and_thumbnail_cache()
+    clear_cmd_history()
+    clear_powershell_history()
 
     # Check TRIM status at the end
     check_trim_status()
