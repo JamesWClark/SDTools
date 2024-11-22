@@ -123,6 +123,14 @@ def clear_event_logs():
     logs = ['Application', 'Security', 'System']
     for log in logs:
         try:
+            # Overwrite the log file with random data
+            log_path = f'C:\\Windows\\System32\\winevt\\Logs\\{log}.evtx'
+            if os.path.exists(log_path):
+                with open(log_path, 'r+b') as file:
+                    length = os.path.getsize(log_path)
+                    file.write(os.urandom(length))
+            
+            # Clear the log
             subprocess.run(['wevtutil', 'cl', log], check=True)
             print(f"{log} log cleared.")
         except Exception as e:
@@ -139,6 +147,26 @@ def clear_temp_files():
             print(f"Temporary files in {temp_dir} cleared.")
         except Exception as e:
             print(f"Error clearing temporary files in {temp_dir}: {e}")
+
+def clear_icon_and_thumbnail_cache():
+    try:
+        # Clear IconCache.db
+        icon_cache_path = os.path.join(os.getenv('LOCALAPPDATA'), 'IconCache.db')
+        if os.path.exists(icon_cache_path):
+            os.remove(icon_cache_path)
+            print("Icon cache cleared. Please restart your computer to rebuild the icon cache.")
+        else:
+            print("Icon cache file not found.")
+
+        # Clear thumbnail cache
+        thumbnail_cache_path = os.path.join(os.getenv('LOCALAPPDATA'), 'Microsoft', 'Windows', 'Explorer')
+        for file in os.listdir(thumbnail_cache_path):
+            if file.startswith('thumbcache'):
+                file_path = os.path.join(thumbnail_cache_path, file)
+                os.remove(file_path)
+        print("Thumbnail cache cleared. Please restart your computer to rebuild the thumbnail cache.")
+    except Exception as e:
+        print(f"Error clearing icon or thumbnail cache: {e}")
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Securely delete files and directories.')
@@ -163,6 +191,7 @@ if __name__ == '__main__':
     clear_dns_cache()
     clear_event_logs()
     clear_temp_files()
+    clear_icon_and_thumbnail_cache()
 
     # Check TRIM status at the end
     check_trim_status()
