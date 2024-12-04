@@ -97,6 +97,37 @@ def secure_delete_directory(directory_path, verbose=False):
                 progress_bar.update(1)
     progress_bar.close()
 
+def flatten_and_obfuscate_directory(directory_path, output_directory, verbose=False):
+    if not os.path.exists(output_directory):
+        os.makedirs(output_directory)
+
+    total_items = sum([len(files) for _, _, files in os.walk(directory_path)])
+    progress_bar = tqdm(total=total_items, desc=f"Processing {directory_path}", unit="item")
+
+    for root, _, files in os.walk(directory_path):
+        for file in files:
+            file_path = os.path.join(root, file)
+            new_name = generate_random_string()  # No extension
+            new_path = os.path.join(output_directory, new_name)
+            try:
+                os.rename(file_path, new_path)
+                if verbose:
+                    print('File moved and obfuscated:', new_path)
+            except Exception as e:
+                error_files.append((file_path, str(e)))
+                if verbose:
+                    print(f"Error moving and obfuscating file {file_path}: {e}")
+            progress_bar.update(1)
+    progress_bar.close()
+
+    # Use sdelete to securely delete the original directory
+    try:
+        subprocess.run(['sdelete', '-s', '-q', directory_path], check=True)
+        if verbose:
+            print(f"Securely deleted original directory: {directory_path}")
+    except Exception as e:
+        print(f"Error securely deleting original directory {directory_path}: {e}")
+
 def check_trim_status():
     try:
         result = subprocess.run(['fsutil', 'behavior', 'query', 'disabledeletenotify'], capture_output=True, text=True)
@@ -191,44 +222,52 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Securely delete files and directories.')
     parser.add_argument('-v', '--verbose', action='store_true', help='Enable verbose logging')
     parser.add_argument('directory', nargs='?', default=None, help='Directory to delete')
+    parser.add_argument('--flatten', action='store_true', help='Flatten and obfuscate files instead of secure deletion')
+    parser.add_argument('--output', default='flattened_files', help='Output directory for flattened files')
     args = parser.parse_args()
 
-    if args.directory is None:
-        directory_paths = [
-            '../outputs',
-            'C:\\Windows\\Temp',
-            os.path.join(os.getenv('LOCALAPPDATA'), 'Temp'),
-            os.path.join(os.getenv('USERPROFILE'), '.cache', 'lm-studio', 'user-files'),
-            os.path.join(os.getenv('LOCALAPPDATA'), 'Packages', 'Microsoft.ScreenSketch_8wekyb3d8bbwe', 'TempState', 'Snips'),
-        ]
-        for directory_path in directory_paths:
-            secure_delete_directory(directory_path, args.verbose)
+    if args.flatten:
+        if args.directory:
+            flatten_and_obfuscate_directory(args.directory, args.output, args.verbose)
+        else:
+            print("Please specify a directory to flatten and obfuscate.")
     else:
-        secure_delete_directory(args.directory, args.verbose)
+        if args.directory is None:
+            directory_paths = [
+                '../outputs',
+                'C:\\Windows\\Temp',
+                os.path.join(os.getenv('LOCALAPPDATA'), 'Temp'),
+                os.path.join(os.getenv('USERPROFILE'), '.cache', 'lm-studio', 'user-files'),
+                os.path.join(os.getenv('LOCALAPPDATA'), 'Packages', 'Microsoft.ScreenSketch_8wekyb3d8bbwe', 'TempState', 'Snips'),
+            ]
+            for directory_path in directory_paths:
+                secure_delete_directory(directory_path, args.verbose)
+        else:
+            secure_delete_directory(args.directory, args.verbose)
 
-    # Additional cleanup tasks
-    clear_dns_cache()
-    clear_event_logs()
-    clear_temp_files()
-    clear_icon_and_thumbnail_cache()
-    clear_cmd_history()
-    clear_powershell_history()
+        # Additional cleanup tasks
+        clear_dns_cache()
+        clear_event_logs()
+        clear_temp_files()
+        clear_icon_and_thumbnail_cache()
+        clear_cmd_history()
+        clear_powershell_history()
 
-    # Check TRIM status at the end
-    check_trim_status()
+        # Check TRIM status at the end
+        check_trim_status()
 
-    print("\nFinal Report:")
-    if deleted_files_count:
-        print("\nDeleted files summary:")
-        for dir_path, count in deleted_files_count.items():
-            print(f"{dir_path}: {count} files")
-    if deleted_dirs_count:
-        print("\nDeleted directories summary:")
-        for dir_path, count in deleted_dirs_count.items():
-            print(f"{dir_path}: {count} directories")
-    if error_files:
-        print("\nError files and directories:")
-        for file_path, error in error_files:
-            print(f"{file_path}: {error}")
+        print("\nFinal Report:")
+        if deleted_files_count:
+            print("\nDeleted files summary:")
+            for dir_path, count in deleted_files_count.items():
+                print(f"{dir_path}: {count} files")
+        if deleted_dirs_count:
+            print("\nDeleted directories summary:")
+            for dir_path, count in deleted_dirs_count.items():
+                print(f"{dir_path}: {count} directories")
+        if error_files:
+            print("\nError files and directories:")
+            for file_path, error in error_files:
+                print(f"{file_path}: {error}")
 
-sys.exit(1)
+    sys.exit(1)
