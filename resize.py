@@ -17,8 +17,6 @@ def resize_images(dir_path, output_dir, min_dimension, target_ext):
         print(f"Error: Unsupported file extension '{target_ext}'. Only .jpg, .png, .webp, and .avif are supported.")
         return
 
-    # Initialize counter for renaming images
-    counter = 1
     unsuccessful_conversions = []
 
     # Iterate over each file in the directory
@@ -47,7 +45,7 @@ def resize_images(dir_path, output_dir, min_dimension, target_ext):
                 resized_img = img.resize((new_width, new_height), Image.LANCZOS)
 
                 # Create the new filename with the target extension
-                resized_img_path = os.path.join(output_dir, f"out{counter}{target_ext}")
+                resized_img_path = os.path.join(output_dir, os.path.splitext(filename)[0] + target_ext)
 
                 # Save the resized image in the target format
                 if target_ext == '.jpg':
@@ -61,7 +59,6 @@ def resize_images(dir_path, output_dir, min_dimension, target_ext):
                     resized_img.save(resized_img_path, 'AVIF')
 
                 print(f"Resized and converted {filename} to {resized_img_path}")
-                counter += 1
             except Exception as e:
                 print(f"Failed to process {filename}: {e}")
                 unsuccessful_conversions.append(filename)
@@ -71,7 +68,6 @@ def resize_images(dir_path, output_dir, min_dimension, target_ext):
         print("\nThe following files were not successfully converted:")
         for file in unsuccessful_conversions:
             print(file)
-
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Resize images in a directory to specified dimensions and convert to a specified format.")
     parser.add_argument("dir_path", type=str, help="The path to the directory containing images to resize.")
