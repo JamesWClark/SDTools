@@ -82,6 +82,26 @@ def secure_delete_file(file_path, verbose=False):
             print(f"Error securely deleting file {file_path}: {e}")
 
 def secure_delete_directory(directory_path, verbose=False):
+    try:
+        # Check if the directory is empty
+        if not os.listdir(directory_path):
+            # Obfuscate the directory name
+            obfuscated_dir_path = obfuscate_directory_name(directory_path)
+            
+            # Securely delete the directory using sdelete
+            subprocess.run(['sdelete', '-s', '-q', obfuscated_dir_path], check=True)
+            deleted_dirs_count[directory_path] += 1
+            if verbose:
+                print('Empty directory securely deleted:', obfuscated_dir_path)
+        else:
+            # Use recursive_delete_directory if the directory is not empty
+            recursive_delete_directory(directory_path, verbose)
+    except Exception as e:
+        error_files.append((directory_path, str(e)))
+        if verbose:
+            print(f"Error securely deleting directory {directory_path}: {e}")
+
+def recursive_delete_directory(directory_path, verbose=False):
     total_items = sum([len(files) + len(dirs) for _, dirs, files in os.walk(directory_path)])
     progress_bar = tqdm(total=total_items, desc=f"Processing {directory_path}", unit="item")
 
@@ -92,16 +112,7 @@ def secure_delete_directory(directory_path, verbose=False):
             progress_bar.update(1)
         for dir in dirs:
             dir_path = os.path.join(root, dir)
-            try:
-                # Securely delete the directory using sdelete
-                subprocess.run(['sdelete', '-s', '-q', dir_path], check=True)
-                deleted_dirs_count[directory_path] += 1
-                if verbose:
-                    print('Directory securely deleted:', dir_path)
-            except Exception as e:
-                error_files.append((dir_path, str(e)))
-                if verbose:
-                    print(f"Error securely deleting directory {dir_path}: {e}")
+            secure_delete_directory(dir_path, verbose)
             progress_bar.update(1)
     progress_bar.close()
 
@@ -248,9 +259,9 @@ if __name__ == '__main__':
                 os.path.join(os.getenv('LOCALAPPDATA'), 'Packages', 'Microsoft.ScreenSketch_8wekyb3d8bbwe', 'TempState', 'Snips'),
             ]
             for directory_path in directory_paths:
-                secure_delete_directory(directory_path, args.verbose)
+                recursive_delete_directory(directory_path, args.verbose)
         else:
-            secure_delete_directory(args.directory, args.verbose)
+            recursive_delete_directory(args.directory, args.verbose)
 
         # Additional cleanup tasks
         clear_dns_cache()
