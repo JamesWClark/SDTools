@@ -7,6 +7,7 @@ import random
 import string
 from collections import defaultdict
 from tqdm import tqdm
+import shutil
 
 # Generate a key and create a cipher suite
 key = Fernet.generate_key()
@@ -62,6 +63,12 @@ def obfuscate_directory_name(directory_path):
     except Exception as e:
         error_files.append((directory_path, str(e)))
         return directory_path
+
+def check_sdelete():
+    if shutil.which('sdelete') is None:
+        print("sdelete is not installed or not found in the system's PATH.")
+        print("Please download and install sdelete from https://docs.microsoft.com/en-us/sysinternals/downloads/sdelete")
+        sys.exit(1)
 
 def secure_delete_file(file_path, verbose=False):
     try:
@@ -245,6 +252,9 @@ if __name__ == '__main__':
     parser.add_argument('--flatten', action='store_true', help='Flatten and obfuscate files instead of secure deletion')
     parser.add_argument('--output', default='flattened_files', help='Output directory for flattened files')
     args = parser.parse_args()
+
+    # Check if sdelete is installed
+    check_sdelete()
 
     if args.flatten:
         if args.directory:
