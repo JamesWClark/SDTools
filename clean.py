@@ -26,13 +26,15 @@ def encrypt_file(file_path):
     except Exception as e:
         error_files.append((file_path, str(e)))
 
-def overwrite_file(file_path, passes=3):
+def overwrite_file(file_path, passes=1):
     try:
         with open(file_path, 'r+b') as file:
             length = os.path.getsize(file_path)
             for _ in range(passes):
                 file.seek(0)
                 file.write(os.urandom(length))
+                file.flush()
+                os.fsync(file.fileno())
     except Exception as e:
         error_files.append((file_path, str(e)))
 
@@ -73,7 +75,7 @@ def secure_delete_file(file_path, verbose=False):
         overwrite_file(obfuscated_file_path)
         
         # Securely delete the file using sdelete
-        subprocess.run(['sdelete', '-s', '-q', obfuscated_file_path], check=True)
+        subprocess.run(['sdelete', '-s', '-q', obfuscated_file_path], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         if verbose:
             print('File securely deleted:', obfuscated_file_path)
     except Exception as e:
@@ -89,7 +91,7 @@ def secure_delete_directory(directory_path, verbose=False):
             obfuscated_dir_path = obfuscate_directory_name(directory_path)
             
             # Securely delete the directory using sdelete
-            subprocess.run(['sdelete', '-s', '-q', obfuscated_dir_path], check=True)
+            subprocess.run(['sdelete', '-s', '-q', obfuscated_dir_path], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             deleted_dirs_count[directory_path] += 1
             if verbose:
                 print('Empty directory securely deleted:', obfuscated_dir_path)
@@ -102,10 +104,10 @@ def secure_delete_directory(directory_path, verbose=False):
             print(f"Error securely deleting directory {directory_path}: {e}")
 
 def recursive_delete_directory(directory_path, verbose=False):
-    total_items = sum([len(files) + len(dirs) for _, dirs, files in os.walk(directory_path)])
+    total_items = sum([len(files) + len(dirs) for _, dirs, files in os.walk(directory_path, followlinks=False)])
     progress_bar = tqdm(total=total_items, desc=f"Processing {directory_path}", unit="item")
 
-    for root, dirs, files in os.walk(directory_path, topdown=False):
+    for root, dirs, files in os.walk(directory_path, topdown=False, followlinks=False):
         for file in files:
             file_path = os.path.join(root, file)
             secure_delete_file(file_path, verbose)
@@ -141,7 +143,7 @@ def flatten_and_obfuscate_directory(directory_path, output_directory, verbose=Fa
 
     # Use sdelete to securely delete the original directory
     try:
-        subprocess.run(['sdelete', '-s', '-q', directory_path], check=True)
+        subprocess.run(['sdelete', '-s', '-q', directory_path], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         if verbose:
             print(f"Securely deleted original directory: {directory_path}")
     except Exception as e:
