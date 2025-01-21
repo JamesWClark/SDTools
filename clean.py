@@ -61,6 +61,26 @@ def obfuscate_directory_name(directory_path):
         error_files.append((directory_path, str(e)))
         return directory_path
 
+def secure_delete_file(file_path, verbose=False):
+    try:
+        # Obfuscate the file name
+        obfuscated_file_path = obfuscate_file_name(file_path)
+        
+        # Encrypt the file
+        encrypt_file(obfuscated_file_path)
+        
+        # Overwrite the file with random data
+        overwrite_file(obfuscated_file_path)
+        
+        # Securely delete the file using sdelete
+        subprocess.run(['sdelete', '-s', '-q', obfuscated_file_path], check=True)
+        if verbose:
+            print('File securely deleted:', obfuscated_file_path)
+    except Exception as e:
+        error_files.append((file_path, str(e)))
+        if verbose:
+            print(f"Error securely deleting file {file_path}: {e}")
+
 def secure_delete_directory(directory_path, verbose=False):
     total_items = sum([len(files) + len(dirs) for _, dirs, files in os.walk(directory_path)])
     progress_bar = tqdm(total=total_items, desc=f"Processing {directory_path}", unit="item")
@@ -68,33 +88,21 @@ def secure_delete_directory(directory_path, verbose=False):
     for root, dirs, files in os.walk(directory_path, topdown=False):
         for file in files:
             file_path = os.path.join(root, file)
-            obfuscated_file_path = obfuscate_file_name(file_path)
-            encrypt_file(obfuscated_file_path)
-            overwrite_file(obfuscated_file_path)
-            try:
-                os.remove(obfuscated_file_path)
-                deleted_files_count[directory_path] += 1
-                if verbose:
-                    print('File deleted:', obfuscated_file_path)
-            except Exception as e:
-                error_files.append((obfuscated_file_path, str(e)))
-                if verbose:
-                    print(f"Error deleting file {obfuscated_file_path}: {e}")
+            secure_delete_file(file_path, verbose)
             progress_bar.update(1)
         for dir in dirs:
             dir_path = os.path.join(root, dir)
-            obfuscated_dir_path = obfuscate_directory_name(dir_path)
-            if obfuscated_dir_path != directory_path:
-                try:
-                    os.rmdir(obfuscated_dir_path)
-                    deleted_dirs_count[directory_path] += 1
-                    if verbose:
-                        print('Directory deleted:', obfuscated_dir_path)
-                except Exception as e:
-                    error_files.append((obfuscated_dir_path, str(e)))
-                    if verbose:
-                        print(f"Error deleting directory {obfuscated_dir_path}: {e}")
-                progress_bar.update(1)
+            try:
+                # Securely delete the directory using sdelete
+                subprocess.run(['sdelete', '-s', '-q', dir_path], check=True)
+                deleted_dirs_count[directory_path] += 1
+                if verbose:
+                    print('Directory securely deleted:', dir_path)
+            except Exception as e:
+                error_files.append((dir_path, str(e)))
+                if verbose:
+                    print(f"Error securely deleting directory {dir_path}: {e}")
+            progress_bar.update(1)
     progress_bar.close()
 
 def flatten_and_obfuscate_directory(directory_path, output_directory, verbose=False):
@@ -210,8 +218,7 @@ def clear_powershell_history():
     try:
         ps_history_path = os.path.join(os.getenv('APPDATA'), 'Microsoft', 'Windows', 'PowerShell', 'PSReadline', 'ConsoleHost_history.txt')
         if os.path.exists(ps_history_path):
-            encrypt_file(ps_history_path)
-            overwrite_file(ps_history_path)
+            secure_delete_file(ps_history_path, verbose=True)
             print("PowerShell history cleared.")
         else:
             print("PowerShell history file not found.")
