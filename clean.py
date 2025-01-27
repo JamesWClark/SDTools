@@ -245,18 +245,37 @@ def clear_powershell_history():
     except Exception as e:
         print(f"Error clearing PowerShell history: {e}")
 
+def clear_chrome_temp_files(verbose=False):
+    chrome_temp_dirs = [
+        os.path.join(os.getenv('LOCALAPPDATA'), 'Google', 'Chrome', 'User Data', 'Default', 'Cache'),
+        os.path.join(os.getenv('LOCALAPPDATA'), 'Google', 'Chrome', 'User Data', 'Default', 'Media Cache'),
+        os.path.join(os.getenv('LOCALAPPDATA'), 'Google', 'Chrome', 'User Data', 'Default', 'Code Cache'),
+        os.path.join(os.getenv('LOCALAPPDATA'), 'Google', 'Chrome', 'User Data', 'Default', 'GPUCache'),
+        os.path.join(os.getenv('LOCALAPPDATA'), 'Google', 'Chrome', 'User Data', 'Default', 'Service Worker', 'CacheStorage'),
+        os.path.join(os.getenv('LOCALAPPDATA'), 'Google', 'Chrome', 'User Data', 'Default', 'Service Worker', 'ScriptCache'),
+    ]
+    for temp_dir in chrome_temp_dirs:
+        if os.path.exists(temp_dir):
+            recursive_delete_directory(temp_dir, verbose)
+        else:
+            if verbose:
+                print(f"Chrome temp directory not found: {temp_dir}")
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Securely delete files and directories.')
     parser.add_argument('-v', '--verbose', action='store_true', help='Enable verbose logging')
     parser.add_argument('directory', nargs='?', default=None, help='Directory to delete')
     parser.add_argument('--flatten', action='store_true', help='Flatten and obfuscate files instead of secure deletion')
     parser.add_argument('--output', default='flattened_files', help='Output directory for flattened files')
+    parser.add_argument('--chrome', action='store_true', help='Securely delete Chrome temporary files')
     args = parser.parse_args()
 
     # Check if sdelete is installed
     check_sdelete()
 
-    if args.flatten:
+    if args.chrome:
+        clear_chrome_temp_files(args.verbose)
+    elif args.flatten:
         if args.directory:
             flatten_and_obfuscate_directory(args.directory, args.output, args.verbose)
         else:
