@@ -261,6 +261,20 @@ def clear_chrome_temp_files(verbose=False):
             if verbose:
                 print(f"Chrome temp directory not found: {temp_dir}")
 
+def clear_steam_temp_files(verbose=False):
+    steam_temp_dirs = [
+        os.path.join(os.getenv('PROGRAMFILES(X86)'), 'Steam', 'appcache'),
+        os.path.join(os.getenv('PROGRAMFILES(X86)'), 'Steam', 'logs'),
+        os.path.join(os.getenv('PROGRAMFILES(X86)'), 'Steam', 'config', 'htmlcache'),
+        os.path.join(os.getenv('PROGRAMFILES(X86)'), 'Steam', 'userdata', '<user_id>', 'config', 'browserdata'),
+    ]
+    for temp_dir in steam_temp_dirs:
+        if os.path.exists(temp_dir):
+            recursive_delete_directory(temp_dir, verbose)
+        else:
+            if verbose:
+                print(f"Steam temp directory not found: {temp_dir}")
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Securely delete files and directories.')
     parser.add_argument('-v', '--verbose', action='store_true', help='Enable verbose logging')
@@ -268,6 +282,7 @@ if __name__ == '__main__':
     parser.add_argument('--flatten', action='store_true', help='Flatten and obfuscate files instead of secure deletion')
     parser.add_argument('--output', default='flattened_files', help='Output directory for flattened files')
     parser.add_argument('--chrome', action='store_true', help='Securely delete Chrome temporary files')
+    parser.add_argument('--steam', action='store_true', help='Securely delete Steam temporary files')
     args = parser.parse_args()
 
     # Check if sdelete is installed
@@ -275,6 +290,8 @@ if __name__ == '__main__':
 
     if args.chrome:
         clear_chrome_temp_files(args.verbose)
+    elif args.steam:
+        clear_steam_temp_files(args.verbose)
     elif args.flatten:
         if args.directory:
             flatten_and_obfuscate_directory(args.directory, args.output, args.verbose)
