@@ -234,6 +234,19 @@ def clear_cmd_history():
     except Exception as e:
         print(f"Error clearing CMD history: {e}")
 
+def clear_explorer_address_bar_history():
+    try:
+        # Command to delete the registry key storing the address bar history
+        subprocess.run(
+            ['reg', 'delete', 'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\TypedPaths', '/f'],
+            check=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL
+        )
+        print("Windows Explorer address bar history cleared.")
+    except Exception as e:
+        print(f"Error clearing Windows Explorer address bar history: {e}")
+
 def clear_powershell_history():
     try:
         ps_history_path = os.path.join(os.getenv('APPDATA'), 'Microsoft', 'Windows', 'PowerShell', 'PSReadline', 'ConsoleHost_history.txt')
@@ -318,6 +331,7 @@ if __name__ == '__main__':
         clear_icon_and_thumbnail_cache()
         clear_cmd_history()
         clear_powershell_history()
+        clear_explorer_address_bar_history()
 
         # Check TRIM status at the end
         check_trim_status()
