@@ -8,6 +8,8 @@ import string
 from collections import defaultdict
 from tqdm import tqdm
 import shutil
+import concurrent.futures
+import multiprocessing
 
 # Generate a key and create a cipher suite
 key = Fernet.generate_key()
@@ -288,6 +290,154 @@ def clear_steam_temp_files(verbose=False):
             if verbose:
                 print(f"Steam temp directory not found: {temp_dir}")
 
+def clear_vlc_recent_media_secure(verbose=False):
+    """
+    Securely erase the VLC recent media list by overwriting and securely deleting the config file.
+    Steps:
+    1. Locate the VLC config file (vlc-qt-interface.ini).
+    2. If it exists, use secure_delete_file to overwrite and securely delete it.
+    3. Print status.
+    """
+    config_path = os.path.join(os.getenv('APPDATA'), 'vlc', 'vlc-qt-interface.ini')
+    if not os.path.exists(config_path):
+        print("VLC config file not found.")
+        return
+
+    secure_delete_file(config_path, verbose=verbose)
+    print("VLC recent media list securely erased.")
+
+def optimize_io_performance(target_path):
+    """
+    Disable Windows USN journal for better performance on the target drive.
+    
+    Args:
+        target_path: The path being processed, used to determine the drive
+    
+    Returns:
+        The drive letter that was optimized
+    """
+    # Extract drive letter from the target path
+    drive = os.path.splitdrive(target_path)[0]
+    if not drive:
+        drive = os.path.splitdrive(os.getcwd())[0]  # Use current drive if target doesn't specify
+    
+    print(f"Temporarily disabling USN journal on {drive} for performance...")
+    subprocess.run(['fsutil', 'usn', 'deletejournal', '/D', drive], 
+                  stderr=subprocess.DEVNULL, stdout=subprocess.DEVNULL)
+    
+    return drive
+
+def restore_io_performance(drive):
+    """
+    Re-enable Windows USN journal on the drive that was previously optimized.
+    
+    Args:
+        drive: The drive letter to restore
+    """
+    print(f"Re-enabling USN journal on {drive}...")
+    subprocess.run(['fsutil', 'usn', 'createjournal', 'M=1000', 'N=100', drive],
+                  stderr=subprocess.DEVNULL, stdout=subprocess.DEVNULL)
+    
+def secure_delete_file_with_progress(file_path, verbose, progress_bar):
+    try:
+        secure_delete_file(file_path, verbose)
+    finally:
+        progress_bar.update(1)
+
+def parallel_secure_delete(directory_path, thread_count=None):
+    """
+    Securely delete files in the directory in parallel batches, showing a tqdm progress bar for each thread.
+    Each thread gets its own batch and progress bar.
+    If thread_count is None, it is determined automatically.
+    """
+    import concurrent.futures
+
+    # Determine thread count automatically if not provided
+    if thread_count is None:
+        thread_count = get_default_thread_count()
+
+    # Gather all files to delete
+    files = []
+    for root, _, filenames in os.walk(directory_path):
+        for f in filenames:
+            files.append(os.path.join(root, f))
+
+    total_files = len(files)
+    if total_files == 0:
+        print("No files to delete.")
+        return
+
+    # Calculate batch size
+    batch_size = calculate_optimal_batch_size(total_files, thread_count)
+    batches = [files[i:i + batch_size] for i in range(0, total_files, batch_size)]
+
+    # Limit number of threads to number of batches
+    actual_threads = min(thread_count, len(batches))
+
+    # Create a progress bar for each batch/thread
+    progress_bars = [
+        tqdm(total=len(batch), desc=f"Thread {i+1}", position=i, leave=True, unit="file")
+        for i, batch in enumerate(batches)
+    ]
+
+    def worker(batch, progress_bar):
+        for file_path in batch:
+            secure_delete_file(file_path)
+            progress_bar.update(1)
+        progress_bar.close()
+
+    # Use ThreadPoolExecutor to run batches in parallel
+    with concurrent.futures.ThreadPoolExecutor(max_workers=actual_threads) as executor:
+        futures = []
+        for i, batch in enumerate(batches):
+            futures.append(executor.submit(worker, batch, progress_bars[i]))
+        concurrent.futures.wait(futures)
+
+def get_default_thread_count():
+    """
+    Returns the optimal default thread count for parallel operations.
+    Uses the number of logical CPUs, but at least 1.
+    """
+    try:
+        return max(1, multiprocessing.cpu_count())
+    except Exception:
+        return 4  # Fallback
+
+def calculate_optimal_batch_size(total_files, thread_count):
+    """
+    Calculate the optimal batch size based on the number of files and available threads.
+    
+    Args:
+        total_files: Total number of files to process
+        thread_count: Number of threads available
+        
+    Returns:
+        Optimal batch size for processing
+    """
+    # Base batch sizes for different scenarios
+    MIN_BATCH_SIZE = 100
+    DEFAULT_BATCH_SIZE = 1000
+    MAX_BATCH_SIZE = 5000
+    
+    # For very small file sets, use a single batch
+    if total_files <= MIN_BATCH_SIZE:
+        return total_files
+        
+    # For small file sets, use smaller batches to ensure good parallelism
+    if total_files < thread_count * 100:
+        return max(MIN_BATCH_SIZE, total_files // thread_count)
+    
+    # For medium file sets, aim for ~10-20 batches
+    if total_files < 20000:
+        return max(DEFAULT_BATCH_SIZE, total_files // 15)
+    
+    # For large file sets, scale batch size with thread count
+    # More threads = smaller batches for better load balancing
+    optimal_size = max(DEFAULT_BATCH_SIZE, 
+                       min(MAX_BATCH_SIZE, total_files // (thread_count * 2)))
+    
+    return optimal_size
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Securely delete files and directories.')
     parser.add_argument('-v', '--verbose', action='store_true', help='Enable verbose logging')
@@ -314,15 +464,16 @@ if __name__ == '__main__':
         if args.directory is None:
             directory_paths = [
                 '../outputs',
+                '../log/images',
                 'C:\\Windows\\Temp',
                 os.path.join(os.getenv('LOCALAPPDATA'), 'Temp'),
                 os.path.join(os.getenv('USERPROFILE'), '.cache', 'lm-studio', 'user-files'),
                 os.path.join(os.getenv('LOCALAPPDATA'), 'Packages', 'Microsoft.ScreenSketch_8wekyb3d8bbwe', 'TempState', 'Snips'),
             ]
             for directory_path in directory_paths:
-                recursive_delete_directory(directory_path, args.verbose)
+                parallel_secure_delete(directory_path)  # No thread count passed, auto-detects
         else:
-            recursive_delete_directory(args.directory, args.verbose)
+            parallel_secure_delete(args.directory)  # No thread count passed, auto-detects
 
         # Additional cleanup tasks
         clear_dns_cache()
@@ -331,6 +482,7 @@ if __name__ == '__main__':
         clear_icon_and_thumbnail_cache()
         clear_cmd_history()
         clear_powershell_history()
+        clear_vlc_recent_media_secure()
         clear_explorer_address_bar_history()
 
         # Check TRIM status at the end
