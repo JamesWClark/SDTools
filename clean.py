@@ -9,7 +9,8 @@ import string
 from collections import defaultdict
 from tqdm import tqdm
 import shutil
-import concurrent.futures
+import threading
+import queue
 import multiprocessing
 
 # Generate a key and create a cipher suite
@@ -346,8 +347,6 @@ def secure_delete_file_with_progress(file_path, verbose, progress_bar):
         progress_bar.update(1)
 
 def parallel_secure_delete(directory_path, thread_count=None):
-    import concurrent.futures
-
     if thread_count is None:
         thread_count = get_default_thread_count()
 
@@ -360,26 +359,40 @@ def parallel_secure_delete(directory_path, thread_count=None):
     total_files = len(files)
     if total_files == 0:
         print("No files to delete.")
-    else:
-        batch_size = math.ceil(total_files / thread_count)
-        batches = [files[i:i + batch_size] for i in range(0, total_files, batch_size)]
-        actual_threads = min(thread_count, len(batches))
-        progress_bars = [
-            tqdm(total=len(batch), desc=f"Thread {i+1}", position=i, leave=True, unit="file")
-            for i, batch in enumerate(batches)
-        ]
+        return
 
-        def worker(batch, progress_bar):
-            for file_path in batch:
+    # Create a thread-safe queue and fill it with file paths
+    file_queue = queue.Queue()
+    for file_path in files:
+        file_queue.put(file_path)
+
+    # Single shared progress bar for all threads
+    progress_bar = tqdm(total=total_files, desc="Deleting files", unit="file")
+
+    def worker():
+        while True:
+            try:
+                file_path = file_queue.get_nowait()
+            except queue.Empty:
+                break
+            try:
                 secure_delete_file(file_path)
-                progress_bar.update(1)
-            progress_bar.close()
+            except Exception as e:
+                error_files.append((file_path, str(e)))
+            progress_bar.update(1)
+            file_queue.task_done()
 
-        with concurrent.futures.ThreadPoolExecutor(max_workers=actual_threads) as executor:
-            futures = []
-            for i, batch in enumerate(batches):
-                futures.append(executor.submit(worker, batch, progress_bars[i]))
-            concurrent.futures.wait(futures)
+    # Start threads
+    threads = []
+    for _ in range(thread_count):
+        t = threading.Thread(target=worker)
+        t.start()
+        threads.append(t)
+
+    # Wait for all threads to finish
+    for t in threads:
+        t.join()
+    progress_bar.close()
 
     # Now securely delete all directories (bottom-up)
     for root, dirs, files in os.walk(directory_path, topdown=False):
@@ -389,11 +402,6 @@ def parallel_secure_delete(directory_path, thread_count=None):
                 secure_delete_directory(dir_path)
             except Exception as e:
                 error_files.append((dir_path, str(e)))
-    # Optionally, delete the root directory itself if you want:
-    # try:
-    #     secure_delete_directory(directory_path)
-    # except Exception as e:
-    #     error_files.append((directory_path, str(e)))
 
 def get_default_thread_count():
     """
