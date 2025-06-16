@@ -1,4 +1,5 @@
 from PIL import Image
+import pillow_avif
 import os
 import argparse
 
