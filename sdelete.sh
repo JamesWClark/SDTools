@@ -15,12 +15,12 @@ if [ ! -d "$TARGET_DIR" ]; then
 	exit 1
 fi
 
-# Get a list of all files
-mapfile -t files < <(find "$TARGET_DIR" -mindepth 1 -type f)
-total=${#files[@]}
+
+# Get a list of all files and count them
+total=$(find "$TARGET_DIR" -mindepth 1 -type f | wc -l)
 count=0
 
-for file in "${files[@]}"; do
+find "$TARGET_DIR" -mindepth 1 -type f | while read -r file; do
 	count=$((count+1))
 	echo "$count/$total: Overwriting $file"
 	dd if=/dev/urandom of="$file" bs=1m count=$(du -m "$file" | cut -f1) conv=notrunc status=none
