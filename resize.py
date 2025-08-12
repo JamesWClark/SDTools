@@ -3,7 +3,7 @@ import pillow_avif
 import os
 import argparse
 
-def resize_images(dir_path, output_dir, min_dimension, target_ext):
+def resize_images(dir_path, output_dir, min_dimension, max_dimension, target_ext):
     # Check if the directory exists
     if not os.path.isdir(dir_path):
         print(f"Error: The directory '{dir_path}' does not exist.")
@@ -20,49 +20,60 @@ def resize_images(dir_path, output_dir, min_dimension, target_ext):
 
     unsuccessful_conversions = []
 
-    # Iterate over each file in the directory
-    for filename in os.listdir(dir_path):
-        filename = filename.lower()
-        if filename.endswith((".jpg", ".png", ".jpeg", ".webp", ".avif")):
-            try:
-                # Open the image file
-                img_path = os.path.join(dir_path, filename)
-                img = Image.open(img_path)
+    # Gather all image files to process
+    valid_exts = (".jpg", ".png", ".jpeg", ".webp", ".avif", ".heic")
+    all_files = [f for f in os.listdir(dir_path) if f.lower().endswith(valid_exts)]
+    total_files = len(all_files)
+    print(f"Found {total_files} image files to process.")
 
-                # Calculate the new width and height based on the dimensions
-                width, height = img.size
-                if width < min_dimension and height < min_dimension:
-                    if width > height:
-                        ratio = min_dimension / width
-                    else:
-                        ratio = min_dimension / height
+    for idx, filename in enumerate(all_files):
+        try:
+            img_path = os.path.join(dir_path, filename)
+            img = Image.open(img_path)
 
-                    new_width = int(width * ratio)
-                    new_height = int(height * ratio)
+            width, height = img.size
+            # Calculate new size based on min and max dimension
+            # First, scale up if both dimensions are less than min_dimension
+            if min_dimension is not None and width < min_dimension and height < min_dimension:
+                if width > height:
+                    ratio = min_dimension / width
                 else:
-                    new_width, new_height = width, height
+                    ratio = min_dimension / height
+                new_width = int(width * ratio)
+                new_height = int(height * ratio)
+            else:
+                new_width, new_height = width, height
 
-                # Resize the image while maintaining aspect ratio
-                resized_img = img.resize((new_width, new_height), Image.LANCZOS)
+            # Then, scale down if any dimension is greater than max_dimension
+            if max_dimension is not None and (new_width > max_dimension or new_height > max_dimension):
+                if new_width > new_height:
+                    ratio = max_dimension / new_width
+                else:
+                    ratio = max_dimension / new_height
+                new_width = int(new_width * ratio)
+                new_height = int(new_height * ratio)
 
-                # Create the new filename with the target extension
-                resized_img_path = os.path.join(output_dir, os.path.splitext(filename)[0] + target_ext)
+            # Resize the image while maintaining aspect ratio
+            resized_img = img.resize((new_width, new_height), Image.LANCZOS)
 
-                # Save the resized image in the target format
-                if target_ext == '.jpg':
-                    resized_img = resized_img.convert("RGB")  # Ensure image is in RGB mode for JPEG
-                    resized_img.save(resized_img_path, 'JPEG')
-                elif target_ext == '.png':
-                    resized_img.save(resized_img_path, 'PNG')
-                elif target_ext == '.webp':
-                    resized_img.save(resized_img_path, 'WEBP')
-                elif target_ext == '.avif':
-                    resized_img.save(resized_img_path, 'AVIF')
+            # Create the new filename with the target extension
+            resized_img_path = os.path.join(output_dir, os.path.splitext(filename)[0] + target_ext)
 
-                print(f"Resized and converted {filename} to {resized_img_path}")
-            except Exception as e:
-                print(f"Failed to process {filename}: {e}")
-                unsuccessful_conversions.append(filename)
+            # Save the resized image in the target format
+            if target_ext == '.jpg':
+                resized_img = resized_img.convert("RGB")  # Ensure image is in RGB mode for JPEG
+                resized_img.save(resized_img_path, 'JPEG')
+            elif target_ext == '.png':
+                resized_img.save(resized_img_path, 'PNG')
+            elif target_ext == '.webp':
+                resized_img.save(resized_img_path, 'WEBP')
+            elif target_ext == '.avif':
+                resized_img.save(resized_img_path, 'AVIF')
+
+            print(f"{idx+1}/{total_files}: Processed {filename}")
+        except Exception as e:
+            print(f"Failed to process {filename}: {e}")
+            unsuccessful_conversions.append(filename)
 
     # Log unsuccessful conversions
     if unsuccessful_conversions:
@@ -121,16 +132,16 @@ if __name__ == "__main__":
     parser.add_argument("dir_path", type=str, help="The path to the directory containing images to resize.")
     parser.add_argument("output_dir", type=str, help="The path to the directory to save resized images.")
     parser.add_argument("--min_dimension", type=int, help="The minimum dimension for the resized images.", default=None)
+    parser.add_argument("--max_dimension", type=int, help="The maximum dimension for the resized images.", default=None)
     parser.add_argument("--flip_horizontal", action="store_true", help="Flip images horizontally.")
     parser.add_argument("--flip_vertical", action="store_true", help="Flip images vertically.")
     parser.add_argument("target_ext", type=str, help="The target file extension for the resized images (e.g., .jpg, .png, .webp, or .avif).")
-    
+
     args = parser.parse_args()
-    
+
     if args.flip_horizontal or args.flip_vertical:
         flip_images(args.dir_path, args.output_dir, args.flip_horizontal, args.flip_vertical)
     elif args.target_ext:
-        resize_images(args.dir_path, args.output_dir, args.min_dimension, args.target_ext)
+        resize_images(args.dir_path, args.output_dir, args.min_dimension, args.max_dimension, args.target_ext)
     else:
         print("Error: No valid operation specified. Use --flip_horizontal, --flip_vertical, or provide a target extension for resizing.")
-        resize_images(args.dir_path, args.output_dir, args.min_dimension, args.target_ext)
