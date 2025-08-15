@@ -1,7 +1,11 @@
 from PIL import Image
 import pillow_avif
+from pillow_heif import register_heif_opener
 import os
 import argparse
+
+# Register HEIF opener with Pillow
+register_heif_opener()
 
 def resize_images(dir_path, output_dir, min_dimension, max_dimension, target_ext):
     # Check if the directory exists
@@ -14,8 +18,8 @@ def resize_images(dir_path, output_dir, min_dimension, max_dimension, target_ext
         os.makedirs(output_dir)
 
     # Validate the target extension
-    if target_ext not in ['.jpg', '.png', '.webp', '.avif']:
-        print(f"Error: Unsupported file extension '{target_ext}'. Only .jpg, .png, .webp, and .avif are supported.")
+    if target_ext not in ['.jpg', '.png', '.webp', '.avif', '.heic']:
+        print(f"Error: Unsupported file extension '{target_ext}'. Only .jpg, .png, .webp, .avif, and .heic are supported.")
         return
 
     unsuccessful_conversions = []
@@ -69,6 +73,8 @@ def resize_images(dir_path, output_dir, min_dimension, max_dimension, target_ext
                 resized_img.save(resized_img_path, 'WEBP')
             elif target_ext == '.avif':
                 resized_img.save(resized_img_path, 'AVIF')
+            elif target_ext == '.heic':
+                resized_img.save(resized_img_path, 'HEIF')
 
             print(f"{idx+1}/{total_files}: Processed {filename}")
         except Exception as e:
