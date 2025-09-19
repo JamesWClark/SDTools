@@ -438,6 +438,7 @@ if __name__ == '__main__':
     else:
         if args.directory is None:
             directory_paths = [
+                '../params.txt',
                 '../outputs',
                 '../log/images',
                 'C:\\Windows\\Temp',
@@ -445,10 +446,28 @@ if __name__ == '__main__':
                 os.path.join(os.getenv('USERPROFILE'), '.cache', 'lm-studio', 'user-files'),
                 os.path.join(os.getenv('LOCALAPPDATA'), 'Packages', 'Microsoft.ScreenSketch_8wekyb3d8bbwe', 'TempState', 'Snips'),
             ]
-            for directory_path in directory_paths:
-                parallel_secure_delete(directory_path)  # No thread count passed, auto-detects
+            for path in directory_paths:
+                if os.path.isfile(path):
+                    # Handle individual file
+                    try:
+                        secure_delete_file(path, args.verbose)
+                        print(f"Securely deleted file: {path}")
+                    except Exception as e:
+                        error_files.append((path, str(e)))
+                        if args.verbose:
+                            print(f"Error deleting file {path}: {e}")
+                elif os.path.isdir(path):
+                    # Handle directory
+                    parallel_secure_delete(path)
+                else:
+                    print(f"Path not found or invalid: {path}")
         else:
-            parallel_secure_delete(args.directory)  # No thread count passed, auto-detects
+            if os.path.isfile(args.directory):
+                secure_delete_file(args.directory, args.verbose)
+            elif os.path.isdir(args.directory):
+                parallel_secure_delete(args.directory)
+            else:
+                print(f"Path not found or invalid: {args.directory}")
 
         # Additional cleanup tasks
         clear_dns_cache()
