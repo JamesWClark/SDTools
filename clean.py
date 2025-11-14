@@ -308,6 +308,38 @@ def clear_vlc_recent_media_secure(verbose=False):
     secure_delete_file(config_path, verbose=verbose)
     print("VLC recent media list securely erased.")
 
+def clear_notepad_plus_plus_recent_files(verbose=False):
+    """
+    Securely erase the Notepad++ recent files list by removing individual File entries
+    from the History section in the config.xml file.
+    """
+    config_path = os.path.join(os.getenv('APPDATA'), 'Notepad++', 'config.xml')
+    
+    if not os.path.exists(config_path):
+        if verbose:
+            print("Notepad++ config file not found.")
+        return
+    
+    try:
+        # Read the config file
+        with open(config_path, 'r', encoding='utf-8') as file:
+            content = file.read()
+        
+        # Remove only the File entries within the History section, preserve the History tag itself
+        import re
+        cleaned_content = re.sub(r'\s*<File\s+filename="[^"]*"\s*/>', '', content)
+        
+        # Write back the cleaned config
+        with open(config_path, 'w', encoding='utf-8') as file:
+            file.write(cleaned_content)
+        
+        if verbose:
+            print("Notepad++ recent files list cleared.")
+    except Exception as e:
+        error_files.append((config_path, str(e)))
+        if verbose:
+            print(f"Error clearing Notepad++ recent files: {e}")
+
 def optimize_io_performance(target_path):
     """
     Disable Windows USN journal for better performance on the target drive.
@@ -477,6 +509,7 @@ if __name__ == '__main__':
         clear_cmd_history()
         clear_powershell_history()
         clear_vlc_recent_media_secure()
+        clear_notepad_plus_plus_recent_files()
         clear_explorer_address_bar_history()
 
         # Check TRIM status at the end
