@@ -398,6 +398,9 @@ def parallel_secure_delete(directory_path, thread_count=None):
     for file_path in files:
         file_queue.put(file_path)
 
+    # Print the path being processed
+    print(f"Path: {directory_path}")
+    
     # Single shared progress bar for all threads
     progress_bar = tqdm(total=total_files, desc="Deleting files", unit="file")
 
@@ -471,12 +474,14 @@ if __name__ == '__main__':
         if args.directory is None:
             directory_paths = [
                 '../params.txt',
-                '../outputs',
                 '../log/images',
+                '../../ComfyUI/input',
                 'C:\\Windows\\Temp',
+                'C:\\Users\\JWC\\AppData\\Roaming\\Code\\User\\workspaceStorage\\vscode-chat-images',
                 os.path.join(os.getenv('LOCALAPPDATA'), 'Temp'),
                 os.path.join(os.getenv('USERPROFILE'), '.cache', 'lm-studio', 'user-files'),
                 os.path.join(os.getenv('LOCALAPPDATA'), 'Packages', 'Microsoft.ScreenSketch_8wekyb3d8bbwe', 'TempState', 'Snips'),
+                os.path.join(os.getenv('LOCALAPPDATA'), 'Packages', 'Microsoft.Paint_8wekyb3d8bbwe', 'TempState'),
             ]
             for path in directory_paths:
                 if os.path.isfile(path):

@@ -3,11 +3,37 @@ import pillow_avif
 from pillow_heif import register_heif_opener
 import os
 import argparse
+import uuid
 
 # Register HEIF opener with Pillow
 register_heif_opener()
 
-def resize_images(dir_path, output_dir, min_dimension, max_dimension, target_ext):
+def generate_unique_guid(output_dir, target_ext):
+    """Generate a unique GUID filename that doesn't exist in the output directory."""
+    while True:
+        guid_filename = str(uuid.uuid4()) + target_ext
+        guid_path = os.path.join(output_dir, guid_filename)
+        if not os.path.exists(guid_path):
+            return guid_filename
+
+def batch_rename_files(output_dir, target_ext):
+    """Rename all files in the output directory to use the folder name as prefix with numbered suffixes."""
+    # Get the folder name
+    folder_name = os.path.basename(output_dir)
+    
+    # Get all files with the target extension
+    files = [f for f in os.listdir(output_dir) if f.lower().endswith(target_ext.lower())]
+    files.sort()  # Sort for consistent ordering
+    
+    # Rename files with (1), (2), (3) format
+    for idx, filename in enumerate(files, start=1):
+        old_path = os.path.join(output_dir, filename)
+        new_filename = f"{folder_name} ({idx}){target_ext}"
+        new_path = os.path.join(output_dir, new_filename)
+        os.rename(old_path, new_path)
+        print(f"Renamed: {filename} -> {new_filename}")
+
+def resize_images(dir_path, output_dir, min_dimension, max_dimension, target_ext, rename=False):
     # Check if the directory exists
     if not os.path.isdir(dir_path):
         print(f"Error: The directory '{dir_path}' does not exist.")
@@ -60,8 +86,12 @@ def resize_images(dir_path, output_dir, min_dimension, max_dimension, target_ext
             # Resize the image while maintaining aspect ratio
             resized_img = img.resize((new_width, new_height), Image.LANCZOS)
 
-            # Create the new filename with the target extension
-            resized_img_path = os.path.join(output_dir, os.path.splitext(filename)[0] + target_ext)
+            # Use GUID filename if renaming is enabled, otherwise preserve original name
+            if rename:
+                guid_filename = generate_unique_guid(output_dir, target_ext)
+                resized_img_path = os.path.join(output_dir, guid_filename)
+            else:
+                resized_img_path = os.path.join(output_dir, os.path.splitext(filename)[0] + target_ext)
 
             # Save the resized image in the target format
             if target_ext == '.jpg':
@@ -86,6 +116,14 @@ def resize_images(dir_path, output_dir, min_dimension, max_dimension, target_ext
         print("\nThe following files were not successfully converted:")
         for file in unsuccessful_conversions:
             print(file)
+    
+    # Batch rename files if --rename flag is enabled
+    if rename:
+        print(f"\nBatch renaming files...")
+        batch_rename_files(output_dir, target_ext)
+        print(f"Resizing and renaming complete!")
+    else:
+        print(f"Resizing complete!")
 
 def flip_images(dir_path, output_dir, flip_horizontal=False, flip_vertical=False):
     # Check if the directory exists
@@ -136,18 +174,21 @@ def flip_images(dir_path, output_dir, flip_horizontal=False, flip_vertical=False
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Resize images in a directory to specified dimensions and convert to a specified format.")
     parser.add_argument("dir_path", type=str, help="The path to the directory containing images to resize.")
-    parser.add_argument("output_dir", type=str, help="The path to the directory to save resized images.")
-    parser.add_argument("--min_dimension", type=int, help="The minimum dimension for the resized images.", default=None)
-    parser.add_argument("--max_dimension", type=int, help="The maximum dimension for the resized images.", default=None)
+    parser.add_argument("--output_dir", type=str, help="The path to the directory to save resized images. Defaults to '<dir_path>/resized-images-resize-py'.", default=None)
+    parser.add_argument("--min_dimension", type=int, help="The minimum dimension for the resized images.", default=1600)
+    parser.add_argument("--max_dimension", type=int, help="The maximum dimension for the resized images.", default=2048)
+    parser.add_argument("--target_ext", type=str, help="The target file extension for the resized images (e.g., .jpg, .png, .webp, or .avif).", default=".jpg")
+    parser.add_argument("--rename", action="store_true", help="Rename output files to folder_name (1), folder_name (2), etc. instead of preserving original names.")
     parser.add_argument("--flip_horizontal", action="store_true", help="Flip images horizontally.")
     parser.add_argument("--flip_vertical", action="store_true", help="Flip images vertically.")
-    parser.add_argument("target_ext", type=str, help="The target file extension for the resized images (e.g., .jpg, .png, .webp, or .avif).")
 
     args = parser.parse_args()
 
+    # Auto-generate output directory if not provided
+    if args.output_dir is None:
+        args.output_dir = os.path.join(args.dir_path, "resized-images-resize-py")
+
     if args.flip_horizontal or args.flip_vertical:
         flip_images(args.dir_path, args.output_dir, args.flip_horizontal, args.flip_vertical)
-    elif args.target_ext:
-        resize_images(args.dir_path, args.output_dir, args.min_dimension, args.max_dimension, args.target_ext)
     else:
-        print("Error: No valid operation specified. Use --flip_horizontal, --flip_vertical, or provide a target extension for resizing.")
+        resize_images(args.dir_path, args.output_dir, args.min_dimension, args.max_dimension, args.target_ext, args.rename)
