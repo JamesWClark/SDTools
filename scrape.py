@@ -830,3 +830,5 @@ def main():
 
 if __name__ == '__main__':
     main()
+
+#   python scrape.py -method scrape_fapellosu -file fap.html -output minka
