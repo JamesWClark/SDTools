@@ -340,6 +340,103 @@ def clear_notepad_plus_plus_recent_files(verbose=False):
         if verbose:
             print(f"Error clearing Notepad++ recent files: {e}")
 
+def reset_paint_to_default(verbose=False):
+    """
+    Best-effort reset of Microsoft Paint to default.
+
+    On modern Windows, Paint is typically a Microsoft Store (Appx) app. The Settings
+    "Reset" button maps closely to `Reset-AppxPackage`.
+
+    This function:
+    1) Attempts to stop Paint (non-fatal)
+    2) Attempts `Reset-AppxPackage` for the Paint package(s)
+    3) Falls back to deleting Paint's per-user app data folders
+    """
+    # 1) Stop Paint if running (ignore failures)
+    try:
+        subprocess.run(
+            ['taskkill', '/IM', 'mspaint.exe', '/F'],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            check=False,
+        )
+    except Exception:
+        pass
+
+    # 2) Try Settings-equivalent reset via PowerShell
+    ps_script = r"""
+$ErrorActionPreference = 'Stop'
+
+$resetCmd = Get-Command Reset-AppxPackage -ErrorAction SilentlyContinue
+if (-not $resetCmd) {
+  exit 2
+}
+
+$names = @('Microsoft.Paint', 'Microsoft.MSPaint')
+foreach ($name in $names) {
+  $pkg = Get-AppxPackage -Name $name -ErrorAction SilentlyContinue
+  if ($pkg) {
+    Reset-AppxPackage -Package $pkg.PackageFullName | Out-Null
+  }
+}
+exit 0
+"""
+
+    try:
+        result = subprocess.run(
+            ['powershell', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', ps_script],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if result.returncode == 0:
+            print("Paint reset to default (Reset-AppxPackage).")
+            return
+        if verbose:
+            # Return code 2: Reset-AppxPackage missing; anything else: command failed.
+            reason = (result.stderr or result.stdout or '').strip()
+            if reason:
+                print(f"Paint reset via PowerShell did not run: {reason}")
+    except Exception as e:
+        if verbose:
+            print(f"Paint reset via PowerShell failed: {e}")
+
+    # 3) Fallback: delete per-user Paint data folders
+    # Note: this is best-effort and may not exactly match Settings reset for all builds.
+    try:
+        localappdata = os.getenv('LOCALAPPDATA')
+        if not localappdata:
+            if verbose:
+                print("LOCALAPPDATA not set; cannot locate Paint app data.")
+            return
+
+        package_dirs = [
+            os.path.join(localappdata, 'Packages', 'Microsoft.Paint_8wekyb3d8bbwe'),
+            os.path.join(localappdata, 'Packages', 'Microsoft.MSPaint_8wekyb3d8bbwe'),
+        ]
+
+        deleted_any = False
+        for package_dir in package_dirs:
+            if os.path.exists(package_dir):
+                try:
+                    shutil.rmtree(package_dir, ignore_errors=False)
+                    deleted_any = True
+                    if verbose:
+                        print(f"Deleted Paint app data folder: {package_dir}")
+                except Exception as e:
+                    error_files.append((package_dir, str(e)))
+                    if verbose:
+                        print(f"Error deleting Paint app data folder {package_dir}: {e}")
+
+        if deleted_any:
+            print("Paint reset to default (cleared app data folder).")
+        else:
+            if verbose:
+                print("Paint app data folder not found; nothing to reset.")
+    except Exception as e:
+        if verbose:
+            print(f"Error resetting Paint: {e}")
+
 def optimize_io_performance(target_path):
     """
     Disable Windows USN journal for better performance on the target drive.
@@ -456,6 +553,7 @@ if __name__ == '__main__':
     parser.add_argument('--output', default='flattened_files', help='Output directory for flattened files')
     parser.add_argument('--chrome', action='store_true', help='Securely delete Chrome temporary files')
     parser.add_argument('--steam', action='store_true', help='Securely delete Steam temporary files')
+    parser.add_argument('--reset-paint', action='store_true', help='Reset Microsoft Paint to default (per-user); default no-args run also resets Paint')
     args = parser.parse_args()
 
     # Check if sdelete is installed
@@ -518,6 +616,11 @@ if __name__ == '__main__':
         clear_vlc_recent_media_secure()
         clear_notepad_plus_plus_recent_files()
         clear_explorer_address_bar_history()
+
+        # Default no-args run: always reset Paint.
+        # Also allow explicit reset via --reset-paint for other invocation styles.
+        if args.directory is None or args.reset_paint:
+            reset_paint_to_default(args.verbose)
 
         # Check TRIM status at the end
         check_trim_status()
