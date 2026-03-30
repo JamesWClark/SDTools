@@ -23,6 +23,7 @@ def _require_pillow():
                 "If you want AVIF/HEIC support, also install: pillow-avif-plugin pillow-heif"
             ) from e
         Image, ImageColor, ImageOps = _Image, _ImageColor, _ImageOps
+        Image.MAX_IMAGE_PIXELS = None
 
     # Optional format plugins
     try:
