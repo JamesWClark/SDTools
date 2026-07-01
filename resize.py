@@ -7,22 +7,23 @@ import uuid
 Image = None
 ImageColor = None
 ImageOps = None
+ImageEnhance = None
 register_heif_opener = None
 
 
 def _require_pillow():
     """Import Pillow lazily so `python resize.py -h` works without dependencies."""
-    global Image, ImageColor, ImageOps, register_heif_opener
+    global Image, ImageColor, ImageOps, ImageEnhance, register_heif_opener
 
     if Image is None:
         try:
-            from PIL import Image as _Image, ImageColor as _ImageColor, ImageOps as _ImageOps
+            from PIL import Image as _Image, ImageColor as _ImageColor, ImageOps as _ImageOps, ImageEnhance as _ImageEnhance
         except ModuleNotFoundError as e:
             raise SystemExit(
                 "Missing dependency: Pillow. Install with: pip install pillow\n"
                 "If you want AVIF/HEIC support, also install: pillow-avif-plugin pillow-heif"
             ) from e
-        Image, ImageColor, ImageOps = _Image, _ImageColor, _ImageOps
+        Image, ImageColor, ImageOps, ImageEnhance = _Image, _ImageColor, _ImageOps, _ImageEnhance
         Image.MAX_IMAGE_PIXELS = None
 
     # Optional format plugins
@@ -184,7 +185,45 @@ def _fit_to_box(img, box: tuple[int, int], box_mode: str, pad_color: str):
     raise ValueError(f"Unsupported --box_mode '{box_mode}'. Use: clip, cover, contain")
 
 
-def resize_images(dir_path, output_dir, min_dimension, max_dimension, target_ext, rename=False, box=None, box_mode="clip", pad_color="black"):
+def _adjust_rgb_channels(img, red=1.0, green=1.0, blue=1.0):
+    """Adjust individual RGB channels by multiplying each channel.
+    
+    red, green, blue: multipliers for each channel (1.0 = no change, >1.0 = brighter, <1.0 = darker)
+    """
+    _require_pillow()
+    
+    # Skip if no adjustment needed
+    if red == 1.0 and green == 1.0 and blue == 1.0:
+        return img
+    
+    # Convert to RGB if necessary (JPEG, RGBA, etc.)
+    if img.mode == 'RGBA':
+        r, g, b, a = img.split()
+    elif img.mode == 'RGB':
+        r, g, b = img.split()
+        a = None
+    else:
+        # For other modes, convert to RGB first
+        img = img.convert('RGB')
+        r, g, b = img.split()
+        a = None
+    
+    # Apply multipliers to each channel
+    if red != 1.0:
+        r = r.point(lambda p: min(255, int(p * red)))
+    if green != 1.0:
+        g = g.point(lambda p: min(255, int(p * green)))
+    if blue != 1.0:
+        b = b.point(lambda p: min(255, int(p * blue)))
+    
+    # Merge channels back
+    if a is not None:
+        return Image.merge('RGBA', (r, g, b, a))
+    else:
+        return Image.merge('RGB', (r, g, b))
+
+
+def resize_images(dir_path, output_dir, min_dimension, max_dimension, target_ext, rename=False, box=None, box_mode="clip", pad_color="black", brightness=1.0, red=1.0, green=1.0, blue=1.0):
     _require_pillow()
     # Check if the directory exists
     if not os.path.isdir(dir_path):
@@ -242,6 +281,15 @@ def resize_images(dir_path, output_dir, min_dimension, max_dimension, target_ext
 
                 # Resize the image while maintaining aspect ratio
                 resized_img = img.resize((new_width, new_height), Image.LANCZOS)
+
+            # Apply brightness adjustment if specified
+            if brightness != 1.0:
+                enhancer = ImageEnhance.Brightness(resized_img)
+                resized_img = enhancer.enhance(brightness)
+
+            # Apply RGB channel adjustments if specified
+            if red != 1.0 or green != 1.0 or blue != 1.0:
+                resized_img = _adjust_rgb_channels(resized_img, red=red, green=green, blue=blue)
 
             # Use GUID filename if renaming is enabled, otherwise preserve original name
             if rename:
@@ -332,6 +380,7 @@ def flip_images(dir_path, output_dir, flip_horizontal=False, flip_vertical=False
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Resize images in a directory to specified dimensions and convert to a specified format.")
     parser.add_argument("dir_path", nargs="?", type=str, help="The path to the directory containing images to resize.")
+    parser.add_argument("target_ext_positional", nargs="?", type=str, help="(Optional) Target format as positional arg, e.g., .png .jpg .webp")
     parser.add_argument("--examples", action="store_true", help="Print usage examples and exit (no dir_path required).")
     parser.add_argument("--help-verbose", action="store_true", help="Show detailed help + examples and exit (no dir_path required).")
     parser.add_argument("--output_dir", type=str, help="The path to the directory to save resized images. Defaults to '<dir_path>/resized-images-resize-py'.", default=None)
@@ -343,6 +392,14 @@ if __name__ == "__main__":
                         help="How to fit into --box: clip (no scaling, center-crop/pad), cover (scale+crop), contain (scale+pad).")
     parser.add_argument("--pad_color", type=str, default="black",
                         help="Padding color for --box_mode contain/clip when image is smaller. Use 'transparent' for alpha-capable outputs.")
+    parser.add_argument("--brightness", type=float, default=1.0,
+                        help="Brightness multiplier (1.0 = original, >1.0 = lighter, <1.0 = darker). Try 1.3 for moderately lighter output.")
+    parser.add_argument("--red", type=float, default=1.0,
+                        help="Red channel multiplier (1.0 = original, >1.0 = more red, <1.0 = less red).")
+    parser.add_argument("--green", type=float, default=1.0,
+                        help="Green channel multiplier (1.0 = original, >1.0 = more green, <1.0 = less green).")
+    parser.add_argument("--blue", type=float, default=1.0,
+                        help="Blue channel multiplier (1.0 = original, >1.0 = more blue, <1.0 = less blue).")
     parser.add_argument("--target_ext", type=str, help="The target file extension for the resized images (e.g., .jpg, .png, .webp, or .avif).", default=".jpg")
     parser.add_argument("--rename", action="store_true", help="Rename output files to folder_name (1), folder_name (2), etc. instead of preserving original names.")
     parser.add_argument("--flip_horizontal", action="store_true", help="Flip images horizontally.")
@@ -367,6 +424,12 @@ if __name__ == "__main__":
     if args.output_dir is None:
         args.output_dir = os.path.join(args.dir_path, "resized-images-resize-py")
 
+    # If target format provided as positional arg, use it (overrides --target_ext)
+    if args.target_ext_positional:
+        if not args.target_ext_positional.startswith('.'):
+            args.target_ext_positional = '.' + args.target_ext_positional
+        args.target_ext = args.target_ext_positional
+
     if args.flip_horizontal or args.flip_vertical:
         flip_images(args.dir_path, args.output_dir, args.flip_horizontal, args.flip_vertical)
     else:
@@ -380,4 +443,8 @@ if __name__ == "__main__":
             box=tuple(args.box) if args.box else None,
             box_mode=args.box_mode,
             pad_color=args.pad_color,
+            brightness=args.brightness,
+            red=args.red,
+            green=args.green,
+            blue=args.blue,
         )
