@@ -545,9 +545,100 @@ def get_default_thread_count():
     except Exception:
         return 4  # Fallback
 
+def is_root_drive(path):
+    """
+    Detects if a path is a root drive (like C:, E:, C:\, E:\, etc.)
+    Returns True if it's a root drive, False otherwise.
+    """
+    if not path:
+        return False
+    
+    # Normalize the path
+    normalized = os.path.normpath(path)
+    
+    # Check for patterns like C:, C:\, E:, E:\, etc.
+    # Split by drive and rest
+    drive, rest = os.path.splitdrive(normalized)
+    
+    # If there's a drive letter and the rest is empty or just a backslash, it's a root drive
+    if drive and len(drive) == 2 and drive[1] == ':':
+        if not rest or rest == '\\' or rest == '/':
+            return True
+    
+    return False
+
+def get_user_confirmation(target_path, is_destructive=True, skip_confirm=False):
+    """
+    Gets confirmation from the user before proceeding with destructive operations.
+    Returns True if user confirms, False otherwise.
+    If skip_confirm is True, bypasses the prompt and returns True immediately.
+    """
+    if skip_confirm:
+        return True
+    
+    if is_destructive:
+        print("\n" + "="*70)
+        print("⚠️  WARNING: DESTRUCTIVE OPERATION")
+        print("="*70)
+        print(f"Target: {target_path}")
+        print("\nThis operation will SECURELY DELETE files and directories.")
+        print("Deleted data CANNOT be recovered.")
+        print("="*70)
+    
+    while True:
+        response = input("\nDo you want to proceed? (Y/N): ").strip().upper()
+        if response in ('Y', 'YES'):
+            return True
+        elif response in ('N', 'NO'):
+            print("Operation cancelled.")
+            return False
+        else:
+            print("Invalid input. Please enter Y or N.")
+
+def get_root_drive_confirmation(path, skip_confirm=False):
+    """
+    Gets DOUBLE confirmation for root drive operations.
+    Returns True only if user confirms twice.
+    If skip_confirm is True, bypasses the prompts and returns True immediately.
+    """
+    if skip_confirm:
+        return True
+    
+    drive = os.path.splitdrive(path)[0] or os.path.splitdrive(os.getcwd())[0]
+    
+    print("\n" + "="*70)
+    print("🚨 CRITICAL WARNING: ROOT DRIVE DETECTED")
+    print("="*70)
+    print(f"Target path is on root drive: {drive}")
+    print("\nAttempting to delete from a root drive can cause SEVERE SYSTEM DAMAGE!")
+    print("This may render your system UNBOOTABLE.")
+    print("="*70)
+    
+    # First confirmation
+    print("\nType the drive letter to confirm (e.g., C or E):")
+    first_confirm = input("Enter drive letter: ").strip().upper()
+    expected_letter = drive[0].upper() if drive else ''
+    
+    if first_confirm != expected_letter:
+        print(f"Incorrect. Expected '{expected_letter}', got '{first_confirm}'.")
+        print("Operation cancelled.")
+        return False
+    
+    # Second confirmation
+    print("\nEnter 'YES I UNDERSTAND' to proceed (this is your last chance):")
+    second_confirm = input("> ").strip().upper()
+    
+    if second_confirm == 'YES I UNDERSTAND':
+        print("\n⚠️  Proceeding with deletion on root drive...")
+        return True
+    else:
+        print("Confirmation failed. Operation cancelled.")
+        return False
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Securely delete files and directories.')
     parser.add_argument('-v', '--verbose', action='store_true', help='Enable verbose logging')
+    parser.add_argument('-Y', '-y', '--yes', action='store_true', help='Skip all confirmations (for automation)')
     parser.add_argument('directory', nargs='?', default=None, help='Directory to delete')
     parser.add_argument('--flatten', action='store_true', help='Flatten and obfuscate files instead of secure deletion')
     parser.add_argument('--output', default='flattened_files', help='Output directory for flattened files')
@@ -560,22 +651,36 @@ if __name__ == '__main__':
     check_sdelete()
 
     if args.chrome:
+        # Request confirmation before clearing Chrome
+        if not get_user_confirmation("Chrome temporary files", is_destructive=True, skip_confirm=args.yes):
+            sys.exit(1)
         clear_chrome_temp_files(args.verbose)
     elif args.steam:
+        # Request confirmation before clearing Steam
+        if not get_user_confirmation("Steam temporary files", is_destructive=True, skip_confirm=args.yes):
+            sys.exit(1)
         clear_steam_temp_files(args.verbose)
     elif args.flatten:
         if args.directory:
+            # Request confirmation before flattening
+            if not get_user_confirmation(args.directory, is_destructive=True, skip_confirm=args.yes):
+                sys.exit(1)
             flatten_and_obfuscate_directory(args.directory, args.output, args.verbose)
         else:
             print("Please specify a directory to flatten and obfuscate.")
     else:
         if args.directory is None:
+            # Request confirmation before running default cleanup
+            if not get_user_confirmation("Default cleanup paths", is_destructive=True, skip_confirm=args.yes):
+                sys.exit(1)
+            
             directory_paths = [
                 '../params.txt',
                 '../log/images',
                 '../../ComfyUI/input',
                 'C:\\Windows\\Temp',
                 'C:\\Users\\JWC\\AppData\\Roaming\\Code\\User\\workspaceStorage\\vscode-chat-images',
+                '\\\\wsl.localhost\\Trellis2-Ubuntu-22.04.5\\root\\audioboss\\work',
                 os.path.join(os.getenv('LOCALAPPDATA'), 'Temp'),
                 os.path.join(os.getenv('USERPROFILE'), '.cache', 'lm-studio', 'user-files'),
                 os.path.join(os.getenv('LOCALAPPDATA'), 'Packages', 'Microsoft.ScreenSketch_8wekyb3d8bbwe', 'TempState', 'Snips'),
@@ -599,6 +704,15 @@ if __name__ == '__main__':
                 else:
                     print(f"Path not found or invalid: {path}")
         else:
+            # User-provided directory - check for root drive and confirm
+            if is_root_drive(args.directory):
+                if not get_root_drive_confirmation(args.directory, skip_confirm=args.yes):
+                    sys.exit(1)
+            else:
+                # Normal confirmation for non-root paths
+                if not get_user_confirmation(args.directory, is_destructive=True, skip_confirm=args.yes):
+                    sys.exit(1)
+            
             if os.path.isfile(args.directory):
                 secure_delete_file(args.directory, args.verbose)
             elif os.path.isdir(args.directory):
