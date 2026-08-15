@@ -1,47 +1,42 @@
-from cryptography.fernet import Fernet
 import os
 import sys
-import math
 import subprocess
 import argparse
 import random
 import string
 from collections import defaultdict
-from tqdm import tqdm
 import shutil
 import threading
 import queue
 import multiprocessing
-
-# Generate a key and create a cipher suite
-key = Fernet.generate_key()
-cipher_suite = Fernet(key)
+import winreg
 
 error_files = []
 deleted_files_count = defaultdict(int)
 deleted_dirs_count = defaultdict(int)
 
-def encrypt_file(file_path):
-    try:
-        with open(file_path, 'rb') as file:
-            plaintext = file.read()
-        ciphertext = cipher_suite.encrypt(plaintext)
-        with open(file_path, 'wb') as file:
-            file.write(ciphertext)
-    except Exception as e:
-        error_files.append((file_path, str(e)))
+class ProgressBar:
+    def __init__(self, total, desc, unit):
+        self.total = total
+        self.desc = desc
+        self.unit = unit
+        self.current = 0
+        self.last_percent = -1
+        self.lock = threading.Lock()
 
-def overwrite_file(file_path, passes=1):
-    try:
-        with open(file_path, 'r+b') as file:
-            length = os.path.getsize(file_path)
-            for _ in range(passes):
-                file.seek(0)
-                file.write(os.urandom(length))
-                file.flush()
-                os.fsync(file.fileno())
-    except Exception as e:
-        error_files.append((file_path, str(e)))
+    def update(self, amount=1):
+        with self.lock:
+            self.current += amount
+            percent = 100 if self.total == 0 else int(self.current * 100 / self.total)
+            if percent == 100 or percent >= self.last_percent + 5:
+                self.last_percent = percent
+                print(f"\r{self.desc}: {self.current}/{self.total} {self.unit} ({percent}%)", end='')
+
+    def close(self):
+        if self.total == 0:
+            print(f"{self.desc}: no {self.unit}s found")
+        else:
+            print()
 
 def generate_random_string(length=12):
     return ''.join(random.choices(string.ascii_letters + string.digits, k=length))
@@ -76,23 +71,21 @@ def check_sdelete():
 
 def secure_delete_file(file_path, verbose=False):
     try:
-        # Obfuscate the file name
-        obfuscated_file_path = obfuscate_file_name(file_path)
-        
-        # Encrypt the file
-        encrypt_file(obfuscated_file_path)
-        
-        # Overwrite the file with random data
-        overwrite_file(obfuscated_file_path)
-        
-        # Securely delete the file using sdelete
-        subprocess.run(['sdelete', '-s', '-q', obfuscated_file_path], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        subprocess.run(
+            ['sdelete', '-p', '1', '-r', '-q', file_path],
+            check=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        deleted_files_count[os.path.dirname(file_path) or '.'] += 1
         if verbose:
-            print('File securely deleted:', obfuscated_file_path)
+            print('File securely deleted:', file_path)
+        return True
     except Exception as e:
         error_files.append((file_path, str(e)))
         if verbose:
             print(f"Error securely deleting file {file_path}: {e}")
+        return False
 
 def secure_delete_directory(directory_path, verbose=False):
     try:
@@ -102,7 +95,12 @@ def secure_delete_directory(directory_path, verbose=False):
             obfuscated_dir_path = obfuscate_directory_name(directory_path)
             
             # Securely delete the directory using sdelete
-            subprocess.run(['sdelete', '-s', '-q', obfuscated_dir_path], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            subprocess.run(
+                ['sdelete', '-p', '1', '-r', '-s', '-q', obfuscated_dir_path],
+                check=True,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
             deleted_dirs_count[directory_path] += 1
             if verbose:
                 print('Empty directory securely deleted:', obfuscated_dir_path)
@@ -116,7 +114,7 @@ def secure_delete_directory(directory_path, verbose=False):
 
 def recursive_delete_directory(directory_path, verbose=False):
     total_items = sum([len(files) + len(dirs) for _, dirs, files in os.walk(directory_path, followlinks=False)])
-    progress_bar = tqdm(total=total_items, desc=f"Processing {directory_path}", unit="item")
+    progress_bar = ProgressBar(total=total_items, desc=f"Processing {directory_path}", unit="item")
 
     for root, dirs, files in os.walk(directory_path, topdown=False, followlinks=False):
         for file in files:
@@ -134,7 +132,7 @@ def flatten_and_obfuscate_directory(directory_path, output_directory, verbose=Fa
         os.makedirs(output_directory)
 
     total_items = sum([len(files) for _, _, files in os.walk(directory_path)])
-    progress_bar = tqdm(total=total_items, desc=f"Processing {directory_path}", unit="item")
+    progress_bar = ProgressBar(total=total_items, desc=f"Processing {directory_path}", unit="item")
 
     for root, _, files in os.walk(directory_path):
         for file in files:
@@ -154,70 +152,113 @@ def flatten_and_obfuscate_directory(directory_path, output_directory, verbose=Fa
 
     # Use sdelete to securely delete the original directory
     try:
-        subprocess.run(['sdelete', '-s', '-q', directory_path], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        subprocess.run(
+            ['sdelete', '-p', '1', '-r', '-s', '-q', directory_path],
+            check=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
         if verbose:
             print(f"Securely deleted original directory: {directory_path}")
     except Exception as e:
         print(f"Error securely deleting original directory {directory_path}: {e}")
 
-def check_trim_status():
+def get_ntfs_trim_status():
     try:
-        result = subprocess.run(['fsutil', 'behavior', 'query', 'disabledeletenotify'], capture_output=True, text=True)
-        if result.returncode == 0:
-            output = result.stdout.strip()
-            if "DisableDeleteNotify = 0" in output:
-                print("TRIM is enabled.")
-            else:
-                print("\033[91mTRIM is not enabled. Please run 'fsutil behavior set disabledeletenotify 0' as an administrator to enable TRIM.\033[0m")
-        else:
-            print("Failed to check TRIM status.")
-            print(result.stderr)
+        result = subprocess.run(
+            ['fsutil', 'behavior', 'query', 'disabledeletenotify'],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if result.returncode != 0:
+            return None
+
+        for line in result.stdout.splitlines():
+            if line.strip().lower().startswith('ntfs disabledeletenotify'):
+                value = line.split('=', 1)[1].strip().split()[0]
+                return value == '0'
     except Exception as e:
-        print(f"Error checking TRIM status: {e}")
+        error_files.append(('NTFS TRIM status', str(e)))
+    return None
+
+def check_trim_status():
+    trim_enabled = get_ntfs_trim_status()
+    if trim_enabled is True:
+        print("NTFS TRIM is enabled.")
+    elif trim_enabled is False:
+        print("\033[91mNTFS TRIM is disabled.\033[0m")
+    else:
+        print("\033[91mUnable to determine NTFS TRIM status.\033[0m")
+    return trim_enabled
+
+def ensure_trim_enabled(skip_confirm=False):
+    if check_trim_status() is True:
+        return True
+
+    print("TRIM should be enabled before secure cleanup on an SSD.")
+    if not skip_confirm:
+        response = input("Request administrator access to enable NTFS TRIM? (Y/N): ").strip().upper()
+        if response not in ('Y', 'YES'):
+            print("Cleanup cancelled because NTFS TRIM is not enabled.")
+            return False
+
+    ps_script = (
+        "$process = Start-Process -FilePath 'fsutil.exe' "
+        "-ArgumentList @('behavior','set','DisableDeleteNotify','0') "
+        "-Verb RunAs -Wait -PassThru; exit $process.ExitCode"
+    )
+    try:
+        result = subprocess.run(
+            ['powershell', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', ps_script],
+            check=False,
+        )
+        if result.returncode != 0:
+            print("Administrator request was cancelled or TRIM could not be enabled.")
+            return False
+    except Exception as e:
+        error_files.append(('Enable NTFS TRIM', str(e)))
+        print(f"Unable to request administrator access: {e}")
+        return False
+
+    print("Checking NTFS TRIM status again...")
+    if check_trim_status() is not True:
+        print("Cleanup cancelled because NTFS TRIM remains disabled or unknown.")
+        return False
+    return True
 
 def clear_dns_cache():
     try:
         subprocess.run(['ipconfig', '/flushdns'], check=True)
         print("DNS cache cleared.")
     except Exception as e:
+        error_files.append(('DNS cache', str(e)))
         print(f"Error clearing DNS cache: {e}")
 
 def clear_event_logs():
     logs = ['Application', 'Security', 'System']
     for log in logs:
         try:
-            # Overwrite the log file with random data
-            log_path = f'C:\\Windows\\System32\\winevt\\Logs\\{log}.evtx'
-            if os.path.exists(log_path):
-                with open(log_path, 'r+b') as file:
-                    length = os.path.getsize(log_path)
-                    file.write(os.urandom(length))
-            
-            # Clear the log
             subprocess.run(['wevtutil', 'cl', log], check=True)
-            print(f"{log} log cleared.")
+            print(f"{log} log logically cleared; old extents require free-space cleanup.")
         except Exception as e:
+            error_files.append((f'{log} event log', str(e)))
             print(f"Error clearing {log} log: {e}")
 
 def clear_temp_files():
     temp_dirs = [os.getenv('TEMP'), os.getenv('TMP'), 'C:\\Windows\\Temp']
-    for temp_dir in temp_dirs:
-        try:
-            for root, dirs, files in os.walk(temp_dir):
-                for file in files:
-                    file_path = os.path.join(root, file)
-                    os.remove(file_path)
-            print(f"Temporary files in {temp_dir} cleared.")
-        except Exception as e:
-            print(f"Error clearing temporary files in {temp_dir}: {e}")
+    for temp_dir in dict.fromkeys(path for path in temp_dirs if path):
+        if os.path.isdir(temp_dir):
+            if parallel_secure_delete(temp_dir, remove_directories=False):
+                print(f"Temporary-file cleanup completed for {temp_dir}.")
 
 def clear_icon_and_thumbnail_cache():
     try:
         # Clear IconCache.db
         icon_cache_path = os.path.join(os.getenv('LOCALAPPDATA'), 'IconCache.db')
         if os.path.exists(icon_cache_path):
-            os.remove(icon_cache_path)
-            print("Icon cache cleared. Please restart your computer to rebuild the icon cache.")
+            if secure_delete_file(icon_cache_path):
+                print("Icon cache securely cleared. Please restart your computer to rebuild it.")
         else:
             print("Icon cache file not found.")
 
@@ -226,9 +267,10 @@ def clear_icon_and_thumbnail_cache():
         for file in os.listdir(thumbnail_cache_path):
             if file.startswith('thumbcache'):
                 file_path = os.path.join(thumbnail_cache_path, file)
-                os.remove(file_path)
-        print("Thumbnail cache cleared. Please restart your computer to rebuild the thumbnail cache.")
+                secure_delete_file(file_path)
+        print("Thumbnail cache securely cleared. Please restart your computer to rebuild it.")
     except Exception as e:
+        error_files.append(('Icon and thumbnail cache', str(e)))
         print(f"Error clearing icon or thumbnail cache: {e}")
 
 def clear_cmd_history():
@@ -236,47 +278,81 @@ def clear_cmd_history():
         subprocess.run(['doskey', '/reinstall'], check=True)
         print("CMD history cleared.")
     except Exception as e:
+        error_files.append(('CMD history', str(e)))
         print(f"Error clearing CMD history: {e}")
 
 def clear_explorer_address_bar_history():
+    key_path = r'Software\Microsoft\Windows\CurrentVersion\Explorer\TypedPaths'
     try:
-        # Command to delete the registry key storing the address bar history
-        subprocess.run(
-            ['reg', 'delete', 'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\TypedPaths', '/f'],
-            check=True,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL
-        )
+        winreg.DeleteKey(winreg.HKEY_CURRENT_USER, key_path)
         print("Windows Explorer address bar history cleared.")
+    except FileNotFoundError:
+        print("Windows Explorer address bar history is already clear.")
     except Exception as e:
+        error_files.append(('Explorer address bar history', str(e)))
         print(f"Error clearing Windows Explorer address bar history: {e}")
 
 def clear_powershell_history():
     try:
         ps_history_path = os.path.join(os.getenv('APPDATA'), 'Microsoft', 'Windows', 'PowerShell', 'PSReadline', 'ConsoleHost_history.txt')
         if os.path.exists(ps_history_path):
-            secure_delete_file(ps_history_path, verbose=True)
-            print("PowerShell history cleared.")
+            if secure_delete_file(ps_history_path, verbose=True):
+                print("PowerShell history securely cleared.")
         else:
             print("PowerShell history file not found.")
     except Exception as e:
+        error_files.append(('PowerShell history', str(e)))
         print(f"Error clearing PowerShell history: {e}")
 
 def clear_chrome_temp_files(verbose=False):
-    chrome_temp_dirs = [
-        os.path.join(os.getenv('LOCALAPPDATA'), 'Google', 'Chrome', 'User Data', 'Default', 'Cache'),
-        os.path.join(os.getenv('LOCALAPPDATA'), 'Google', 'Chrome', 'User Data', 'Default', 'Media Cache'),
-        os.path.join(os.getenv('LOCALAPPDATA'), 'Google', 'Chrome', 'User Data', 'Default', 'Code Cache'),
-        os.path.join(os.getenv('LOCALAPPDATA'), 'Google', 'Chrome', 'User Data', 'Default', 'GPUCache'),
-        os.path.join(os.getenv('LOCALAPPDATA'), 'Google', 'Chrome', 'User Data', 'Default', 'Service Worker', 'CacheStorage'),
-        os.path.join(os.getenv('LOCALAPPDATA'), 'Google', 'Chrome', 'User Data', 'Default', 'Service Worker', 'ScriptCache'),
+    subprocess.run(
+        ['taskkill', '/IM', 'chrome.exe', '/F'],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        check=False,
+    )
+
+    localappdata = os.getenv('LOCALAPPDATA')
+    if not localappdata:
+        error_files.append(('Chrome cache', 'LOCALAPPDATA is not set'))
+        return
+
+    user_data = os.path.join(localappdata, 'Google', 'Chrome', 'User Data')
+    if not os.path.isdir(user_data):
+        if verbose:
+            print(f"Chrome user data directory not found: {user_data}")
+        return
+
+    profile_names = [
+        entry.name
+        for entry in os.scandir(user_data)
+        if entry.is_dir(follow_symlinks=False)
+        and (entry.name == 'Default' or entry.name == 'Guest Profile' or entry.name.startswith('Profile '))
     ]
+    profile_cache_paths = [
+        ('Cache',),
+        ('Media Cache',),
+        ('Code Cache',),
+        ('GPUCache',),
+        ('Service Worker', 'CacheStorage'),
+        ('Service Worker', 'ScriptCache'),
+    ]
+    chrome_temp_dirs = [
+        os.path.join(user_data, profile_name, *relative_path)
+        for profile_name in profile_names
+        for relative_path in profile_cache_paths
+    ]
+    chrome_temp_dirs.extend([
+        os.path.join(user_data, 'ShaderCache'),
+        os.path.join(user_data, 'GrShaderCache'),
+        os.path.join(user_data, 'GraphiteDawnCache'),
+    ])
+
     for temp_dir in chrome_temp_dirs:
-        if os.path.exists(temp_dir):
-            recursive_delete_directory(temp_dir, verbose)
-        else:
-            if verbose:
-                print(f"Chrome temp directory not found: {temp_dir}")
+        if os.path.isdir(temp_dir):
+            parallel_secure_delete(temp_dir, remove_directories=False)
+        elif verbose:
+            print(f"Chrome temp directory not found: {temp_dir}")
 
 def clear_steam_temp_files(verbose=False):
     steam_temp_dirs = [
@@ -305,8 +381,8 @@ def clear_vlc_recent_media_secure(verbose=False):
         print("VLC config file not found.")
         return
 
-    secure_delete_file(config_path, verbose=verbose)
-    print("VLC recent media list securely erased.")
+    if secure_delete_file(config_path, verbose=verbose):
+        print("VLC recent media list securely erased.")
 
 def clear_notepad_plus_plus_recent_files(verbose=False):
     """
@@ -329,7 +405,9 @@ def clear_notepad_plus_plus_recent_files(verbose=False):
         import re
         cleaned_content = re.sub(r'\s*<File\s+filename="[^"]*"\s*/>', '', content)
         
-        # Write back the cleaned config
+        if not secure_delete_file(config_path, verbose=verbose):
+            return
+
         with open(config_path, 'w', encoding='utf-8') as file:
             file.write(cleaned_content)
         
@@ -347,10 +425,8 @@ def reset_paint_to_default(verbose=False):
     On modern Windows, Paint is typically a Microsoft Store (Appx) app. The Settings
     "Reset" button maps closely to `Reset-AppxPackage`.
 
-    This function:
-    1) Attempts to stop Paint (non-fatal)
-    2) Attempts `Reset-AppxPackage` for the Paint package(s)
-    3) Falls back to deleting Paint's per-user app data folders
+    Paint is stopped, its per-user data is securely removed, and then the Appx
+    package reset recreates the default state.
     """
     # 1) Stop Paint if running (ignore failures)
     try:
@@ -363,7 +439,24 @@ def reset_paint_to_default(verbose=False):
     except Exception:
         pass
 
-    # 2) Try Settings-equivalent reset via PowerShell
+    localappdata = os.getenv('LOCALAPPDATA')
+    if not localappdata:
+        error_files.append(('Paint reset', 'LOCALAPPDATA is not set'))
+        return False
+
+    package_dirs = [
+        os.path.join(localappdata, 'Packages', 'Microsoft.Paint_8wekyb3d8bbwe'),
+        os.path.join(localappdata, 'Packages', 'Microsoft.MSPaint_8wekyb3d8bbwe'),
+    ]
+    errors_before = len(error_files)
+    for package_dir in package_dirs:
+        if os.path.isdir(package_dir):
+            parallel_secure_delete(package_dir, remove_directories=False)
+
+    if len(error_files) != errors_before:
+        print("Paint reset cancelled because some app data could not be securely deleted.")
+        return False
+
     ps_script = r"""
 $ErrorActionPreference = 'Stop'
 
@@ -391,51 +484,16 @@ exit 0
         )
         if result.returncode == 0:
             print("Paint reset to default (Reset-AppxPackage).")
-            return
+            return True
+        reason = (result.stderr or result.stdout or f'exit code {result.returncode}').strip()
+        error_files.append(('Paint reset', reason))
         if verbose:
-            # Return code 2: Reset-AppxPackage missing; anything else: command failed.
-            reason = (result.stderr or result.stdout or '').strip()
-            if reason:
-                print(f"Paint reset via PowerShell did not run: {reason}")
+            print(f"Paint reset via PowerShell did not run: {reason}")
     except Exception as e:
+        error_files.append(('Paint reset', str(e)))
         if verbose:
             print(f"Paint reset via PowerShell failed: {e}")
-
-    # 3) Fallback: delete per-user Paint data folders
-    # Note: this is best-effort and may not exactly match Settings reset for all builds.
-    try:
-        localappdata = os.getenv('LOCALAPPDATA')
-        if not localappdata:
-            if verbose:
-                print("LOCALAPPDATA not set; cannot locate Paint app data.")
-            return
-
-        package_dirs = [
-            os.path.join(localappdata, 'Packages', 'Microsoft.Paint_8wekyb3d8bbwe'),
-            os.path.join(localappdata, 'Packages', 'Microsoft.MSPaint_8wekyb3d8bbwe'),
-        ]
-
-        deleted_any = False
-        for package_dir in package_dirs:
-            if os.path.exists(package_dir):
-                try:
-                    shutil.rmtree(package_dir, ignore_errors=False)
-                    deleted_any = True
-                    if verbose:
-                        print(f"Deleted Paint app data folder: {package_dir}")
-                except Exception as e:
-                    error_files.append((package_dir, str(e)))
-                    if verbose:
-                        print(f"Error deleting Paint app data folder {package_dir}: {e}")
-
-        if deleted_any:
-            print("Paint reset to default (cleared app data folder).")
-        else:
-            if verbose:
-                print("Paint app data folder not found; nothing to reset.")
-    except Exception as e:
-        if verbose:
-            print(f"Error resetting Paint: {e}")
+    return False
 
 def optimize_io_performance(target_path):
     """
@@ -475,7 +533,9 @@ def secure_delete_file_with_progress(file_path, verbose, progress_bar):
     finally:
         progress_bar.update(1)
 
-def parallel_secure_delete(directory_path, thread_count=None):
+def parallel_secure_delete(directory_path, thread_count=None, remove_directories=True):
+    errors_before = len(error_files)
+
     if thread_count is None:
         thread_count = get_default_thread_count()
 
@@ -486,9 +546,6 @@ def parallel_secure_delete(directory_path, thread_count=None):
             files.append(os.path.join(root, f))
 
     total_files = len(files)
-    if total_files == 0:
-        print("No files to delete.")
-        return
 
     # Create a thread-safe queue and fill it with file paths
     file_queue = queue.Queue()
@@ -499,7 +556,7 @@ def parallel_secure_delete(directory_path, thread_count=None):
     print(f"Path: {directory_path}")
     
     # Single shared progress bar for all threads
-    progress_bar = tqdm(total=total_files, desc="Deleting files", unit="file")
+    progress_bar = ProgressBar(total=total_files, desc="Deleting files", unit="file")
 
     def worker():
         while True:
@@ -507,10 +564,7 @@ def parallel_secure_delete(directory_path, thread_count=None):
                 file_path = file_queue.get_nowait()
             except queue.Empty:
                 break
-            try:
-                secure_delete_file(file_path)
-            except Exception as e:
-                error_files.append((file_path, str(e)))
+            secure_delete_file(file_path)
             progress_bar.update(1)
             file_queue.task_done()
 
@@ -526,14 +580,16 @@ def parallel_secure_delete(directory_path, thread_count=None):
         t.join()
     progress_bar.close()
 
-    # Now securely delete all directories (bottom-up)
-    for root, dirs, files in os.walk(directory_path, topdown=False):
-        for dir in dirs:
-            dir_path = os.path.join(root, dir)
-            try:
-                secure_delete_directory(dir_path)
-            except Exception as e:
-                error_files.append((dir_path, str(e)))
+    if remove_directories:
+        for root, dirs, files in os.walk(directory_path, topdown=False):
+            for dir in dirs:
+                dir_path = os.path.join(root, dir)
+                try:
+                    secure_delete_directory(dir_path)
+                except Exception as e:
+                    error_files.append((dir_path, str(e)))
+
+    return len(error_files) == errors_before
 
 def get_default_thread_count():
     """
@@ -635,6 +691,41 @@ def get_root_drive_confirmation(path, skip_confirm=False):
         print("Confirmation failed. Operation cancelled.")
         return False
 
+def clean_free_space(drive, verbose=False):
+    normalized_drive = drive.rstrip('\\/')
+    if len(normalized_drive) != 2 or normalized_drive[1] != ':' or not normalized_drive[0].isalpha():
+        error_files.append((drive, 'Free-space cleanup requires a drive letter such as C:'))
+        return False
+
+    try:
+        command = ['sdelete', '-p', '1', '-q', '-c', normalized_drive.upper()]
+        if verbose:
+            print(f"Cleaning unallocated space on {normalized_drive.upper()} with one pass...")
+        subprocess.run(command, check=True)
+        print(f"Free space securely cleaned on {normalized_drive.upper()}.")
+        return True
+    except Exception as e:
+        error_files.append((normalized_drive.upper(), str(e)))
+        print(f"Error cleaning free space on {normalized_drive.upper()}: {e}")
+        return False
+
+def print_final_report():
+    print("\nFinal Report:")
+    if deleted_files_count:
+        print("\nDeleted files summary:")
+        for dir_path, count in deleted_files_count.items():
+            print(f"{dir_path}: {count} files")
+    if deleted_dirs_count:
+        print("\nDirectories removed during this run (applications may recreate them):")
+        for dir_path, count in deleted_dirs_count.items():
+            print(f"{dir_path}: {count} directories")
+    if error_files:
+        print("\nErrors:")
+        for file_path, error in error_files:
+            print(f"{file_path}: {error}")
+    else:
+        print("No errors reported.")
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Securely delete files and directories.')
     parser.add_argument('-v', '--verbose', action='store_true', help='Enable verbose logging')
@@ -644,11 +735,15 @@ if __name__ == '__main__':
     parser.add_argument('--output', default='flattened_files', help='Output directory for flattened files')
     parser.add_argument('--chrome', action='store_true', help='Securely delete Chrome temporary files')
     parser.add_argument('--steam', action='store_true', help='Securely delete Steam temporary files')
+    parser.add_argument('--clean-free-space', action='append', metavar='DRIVE', help='After cleanup, securely clean unallocated space on a drive such as C: (slow)')
     parser.add_argument('--reset-paint', action='store_true', help='Reset Microsoft Paint to default (per-user); default no-args run also resets Paint')
     args = parser.parse_args()
 
     # Check if sdelete is installed
     check_sdelete()
+
+    if not ensure_trim_enabled(skip_confirm=args.yes):
+        sys.exit(2)
 
     if args.chrome:
         # Request confirmation before clearing Chrome
@@ -679,6 +774,7 @@ if __name__ == '__main__':
                 '../log/images',
                 '../../ComfyUI/input',
                 'C:\\Windows\\Temp',
+                'C:\\Users\\JWC\\AppData\\Local\\Microsoft\\Windows\\Explorer',
                 'C:\\Users\\JWC\\AppData\\Roaming\\Code\\User\\workspaceStorage\\vscode-chat-images',
                 '\\\\wsl.localhost\\Trellis2-Ubuntu-22.04.5\\root\\audioboss\\work',
                 os.path.join(os.getenv('LOCALAPPDATA'), 'Temp'),
@@ -687,20 +783,20 @@ if __name__ == '__main__':
                 os.path.join(os.getenv('LOCALAPPDATA'), 'Packages', 'Microsoft.Paint_8wekyb3d8bbwe', 'TempState'),
                 os.path.join(os.getenv('LOCALAPPDATA'), 'Meltytech', 'Shotcut', 'cache'),
                 os.path.join(os.getenv('LOCALAPPDATA'), 'Meltytech', 'Shotcut', 'thumbnails'),
+                os.path.join(os.getenv('USERPROFILE'), 'Pictures', 'Screenshots'),
+                os.path.join(os.getenv('LOCALAPPDATA'), 'Microsoft', 'Windows', 'Clipboard'),
+                os.path.join(os.getenv('APPDATA'), 'Microsoft', 'Windows', 'Recent'),
+                os.path.join(os.getenv('LOCALAPPDATA'), 'Packages', 'Microsoft.ScreenSketch_8wekyb3d8bbwe', 'TempState'),
+                os.path.join(os.getenv('LOCALAPPDATA'), 'Packages', 'Microsoft.ScreenSketch_8wekyb3d8bbwe', 'LocalState'),
             ]
+            directory_paths = list(dict.fromkeys(directory_paths))
             for path in directory_paths:
                 if os.path.isfile(path):
-                    # Handle individual file
-                    try:
-                        secure_delete_file(path, args.verbose)
+                    if secure_delete_file(path, args.verbose):
                         print(f"Securely deleted file: {path}")
-                    except Exception as e:
-                        error_files.append((path, str(e)))
-                        if args.verbose:
-                            print(f"Error deleting file {path}: {e}")
                 elif os.path.isdir(path):
                     # Handle directory
-                    parallel_secure_delete(path)
+                    parallel_secure_delete(path, remove_directories=False)
                 else:
                     print(f"Path not found or invalid: {path}")
         else:
@@ -719,6 +815,7 @@ if __name__ == '__main__':
                 parallel_secure_delete(args.directory)
             else:
                 print(f"Path not found or invalid: {args.directory}")
+                error_files.append((args.directory, 'Path not found or invalid'))
 
         # Additional cleanup tasks
         clear_dns_cache()
@@ -736,21 +833,14 @@ if __name__ == '__main__':
         if args.directory is None or args.reset_paint:
             reset_paint_to_default(args.verbose)
 
-        # Check TRIM status at the end
-        check_trim_status()
+    for drive in args.clean_free_space or []:
+        if not get_user_confirmation(
+            f"Unallocated space on {drive}",
+            is_destructive=True,
+            skip_confirm=args.yes,
+        ):
+            sys.exit(1)
+        clean_free_space(drive, args.verbose)
 
-        print("\nFinal Report:")
-        if deleted_files_count:
-            print("\nDeleted files summary:")
-            for dir_path, count in deleted_files_count.items():
-                print(f"{dir_path}: {count} files")
-        if deleted_dirs_count:
-            print("\nDeleted directories summary:")
-            for dir_path, count in deleted_dirs_count.items():
-                print(f"{dir_path}: {count} directories")
-        if error_files:
-            print("\nError files and directories:")
-            for file_path, error in error_files:
-                print(f"{file_path}: {error}")
-
-    sys.exit(1)
+    print_final_report()
+    sys.exit(1 if error_files else 0)

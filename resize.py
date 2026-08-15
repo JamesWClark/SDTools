@@ -8,22 +8,23 @@ Image = None
 ImageColor = None
 ImageOps = None
 ImageEnhance = None
+ImageStat = None
 register_heif_opener = None
 
 
 def _require_pillow():
     """Import Pillow lazily so `python resize.py -h` works without dependencies."""
-    global Image, ImageColor, ImageOps, ImageEnhance, register_heif_opener
+    global Image, ImageColor, ImageOps, ImageEnhance, ImageStat, register_heif_opener
 
     if Image is None:
         try:
-            from PIL import Image as _Image, ImageColor as _ImageColor, ImageOps as _ImageOps, ImageEnhance as _ImageEnhance
+            from PIL import Image as _Image, ImageColor as _ImageColor, ImageOps as _ImageOps, ImageEnhance as _ImageEnhance, ImageStat as _ImageStat
         except ModuleNotFoundError as e:
             raise SystemExit(
                 "Missing dependency: Pillow. Install with: pip install pillow\n"
                 "If you want AVIF/HEIC support, also install: pillow-avif-plugin pillow-heif"
             ) from e
-        Image, ImageColor, ImageOps, ImageEnhance = _Image, _ImageColor, _ImageOps, _ImageEnhance
+        Image, ImageColor, ImageOps, ImageEnhance, ImageStat = _Image, _ImageColor, _ImageOps, _ImageEnhance, _ImageStat
         Image.MAX_IMAGE_PIXELS = None
 
     # Optional format plugins
@@ -67,6 +68,9 @@ Examples
 
   4) Flip only
       python resize.py "C:\\images" --flip_horizontal
+
+  5) Conservatively correct a global color cast and brightness
+      python resize.py "C:\\images" --auto_normalize --target_ext .jpg
 """
 
 
@@ -74,6 +78,9 @@ VERBOSE_NOTES = """\
 Notes
 
   --box overrides --min_dimension/--max_dimension.
+    --auto_normalize uses a bounded gray-world white balance and luminance-only
+    exposure adjustment. It skips nearly monochrome images and cannot determine
+    artistic intent, so review output before replacing originals.
   --box_mode meanings:
      - clip: no scaling; crops/pads to reach the box size
      - cover: scales up/down to fully fill the box, then crops
@@ -223,7 +230,79 @@ def _adjust_rgb_channels(img, red=1.0, green=1.0, blue=1.0):
         return Image.merge('RGB', (r, g, b))
 
 
-def resize_images(dir_path, output_dir, min_dimension, max_dimension, target_ext, rename=False, box=None, box_mode="clip", pad_color="black", brightness=1.0, red=1.0, green=1.0, blue=1.0):
+def _auto_normalize(img, strength=0.5):
+    """Conservatively reduce global RGB casts and correct overall exposure.
+
+    Uses the gray-world assumption: across a natural image, average red, green,
+    and blue should be similar. Corrections are intentionally capped because a
+    blue ocean or red sunset may be a valid subject, not a color cast.
+    """
+    _require_pillow()
+    strength = max(0.0, min(1.0, strength))
+    if strength == 0.0:
+        return img, None
+
+    has_alpha = "A" in img.getbands()
+    alpha = img.getchannel("A") if has_alpha else None
+    rgb = img.convert("RGB")
+    sample = rgb.copy()
+    sample.thumbnail((256, 256), Image.Resampling.BOX)
+    means = ImageStat.Stat(sample).mean
+    mean_level = sum(means) / 3
+    channel_spread = (max(means) - min(means)) / max(mean_level, 1.0)
+    factors = [1.0, 1.0, 1.0]
+    color_details = "skipped color balance"
+    normalized = rgb
+
+    if mean_level > 1.0 and channel_spread >= 0.035:
+        # Blend toward neutral means. The bounds retain some protection for
+        # scenes whose dominant colors are intentional, while allowing a
+        # visible fix for genuinely severe casts at strength 1.0.
+        raw_factors = [mean_level / channel_mean for channel_mean in means]
+        factors = [max(0.65, min(1.55, 1.0 + (factor - 1.0) * strength)) for factor in raw_factors]
+        channels = rgb.split()
+        corrected = [
+            channel.point(lambda value, factor=factor: min(255, round(value * factor)))
+            for channel, factor in zip(channels, factors)
+        ]
+        normalized = Image.merge("RGB", corrected)
+        color_details = "RGB x {:.3f}/{:.3f}/{:.3f}".format(*factors)
+
+    # Stretch luminance with one lookup shared by RGB, preserving the white
+    # balance above. This fixes underexposed images much more effectively than
+    # a small brightness multiplier while only sacrificing extreme highlights.
+    histogram = sample.convert("L").histogram()
+    total_pixels = sum(histogram)
+
+    def percentile(percent):
+        threshold = total_pixels * percent / 100
+        cumulative = 0
+        for value, count in enumerate(histogram):
+            cumulative += count
+            if cumulative >= threshold:
+                return value
+        return 255
+
+    shadow_point = percentile(1)
+    highlight_point = percentile(99)
+    if highlight_point - shadow_point >= 12:
+        scale = 245 / (highlight_point - shadow_point)
+        lookup = [
+            round(value * (1 - strength) + max(0, min(245, (value - shadow_point) * scale)) * strength)
+            for value in range(256)
+        ]
+        normalized = normalized.point(lookup * 3)
+        exposure_details = f"levels {shadow_point}-{highlight_point}"
+    else:
+        exposure_details = "skipped narrow tonal range"
+
+    if alpha is not None:
+        normalized.putalpha(alpha)
+    details = f"{color_details}, {exposure_details}"
+    return normalized, details
+
+
+def resize_images(dir_path, output_dir, min_dimension, max_dimension, target_ext, rename=False, box=None, box_mode="clip", pad_color="black", brightness=1.0, red=1.0, green=1.0, blue=1.0, auto_normalize=False, auto_strength=0.5):
     _require_pillow()
     # Check if the directory exists
     if not os.path.isdir(dir_path):
@@ -290,6 +369,11 @@ def resize_images(dir_path, output_dir, min_dimension, max_dimension, target_ext
             # Apply RGB channel adjustments if specified
             if red != 1.0 or green != 1.0 or blue != 1.0:
                 resized_img = _adjust_rgb_channels(resized_img, red=red, green=green, blue=blue)
+
+            if auto_normalize:
+                resized_img, auto_normalize_details = _auto_normalize(resized_img, auto_strength)
+                if auto_normalize_details:
+                    print(f"  Auto normalize: {auto_normalize_details}")
 
             # Use GUID filename if renaming is enabled, otherwise preserve original name
             if rename:
@@ -400,6 +484,10 @@ if __name__ == "__main__":
                         help="Green channel multiplier (1.0 = original, >1.0 = more green, <1.0 = less green).")
     parser.add_argument("--blue", type=float, default=1.0,
                         help="Blue channel multiplier (1.0 = original, >1.0 = more blue, <1.0 = less blue).")
+    parser.add_argument("--auto_normalize", action="store_true",
+                        help="Conservatively reduce global RGB casts and correct overall brightness; skips nearly monochrome images.")
+    parser.add_argument("--auto_strength", type=float, default=0.5,
+                        help="Auto-normalize strength from 0.0 to 1.0 (default: 0.5; channel/exposure changes remain capped).")
     parser.add_argument("--target_ext", type=str, help="The target file extension for the resized images (e.g., .jpg, .png, .webp, or .avif).", default=".jpg")
     parser.add_argument("--rename", action="store_true", help="Rename output files to folder_name (1), folder_name (2), etc. instead of preserving original names.")
     parser.add_argument("--flip_horizontal", action="store_true", help="Flip images horizontally.")
@@ -447,4 +535,6 @@ if __name__ == "__main__":
             red=args.red,
             green=args.green,
             blue=args.blue,
+            auto_normalize=args.auto_normalize,
+            auto_strength=args.auto_strength,
         )
