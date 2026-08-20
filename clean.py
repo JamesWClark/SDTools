@@ -547,47 +547,56 @@ def parallel_secure_delete(directory_path, thread_count=None, remove_directories
 
     total_files = len(files)
 
-    # Create a thread-safe queue and fill it with file paths
-    file_queue = queue.Queue()
-    for file_path in files:
-        file_queue.put(file_path)
+    if total_files:
+        # Create a thread-safe queue and fill it with file paths
+        file_queue = queue.Queue()
+        for file_path in files:
+            file_queue.put(file_path)
 
-    # Print the path being processed
-    print(f"Path: {directory_path}")
-    
-    # Single shared progress bar for all threads
-    progress_bar = ProgressBar(total=total_files, desc="Deleting files", unit="file")
+        # Print the path being processed
+        print(f"Path: {directory_path}")
 
-    def worker():
-        while True:
-            try:
-                file_path = file_queue.get_nowait()
-            except queue.Empty:
-                break
-            secure_delete_file(file_path)
-            progress_bar.update(1)
-            file_queue.task_done()
+        # Single shared progress bar for all threads
+        progress_bar = ProgressBar(total=total_files, desc="Deleting files", unit="file")
 
-    # Start threads
-    threads = []
-    for _ in range(thread_count):
-        t = threading.Thread(target=worker)
-        t.start()
-        threads.append(t)
+        def worker():
+            while True:
+                try:
+                    file_path = file_queue.get_nowait()
+                except queue.Empty:
+                    break
+                secure_delete_file(file_path)
+                progress_bar.update(1)
+                file_queue.task_done()
 
-    # Wait for all threads to finish
-    for t in threads:
-        t.join()
-    progress_bar.close()
+        # Start threads
+        threads = []
+        for _ in range(thread_count):
+            t = threading.Thread(target=worker)
+            t.start()
+            threads.append(t)
+
+        # Wait for all threads to finish
+        for t in threads:
+            t.join()
+        progress_bar.close()
+    elif remove_directories:
+        print(f"Path: {directory_path}")
+        print("No files found; deleting directories.")
 
     if remove_directories:
-        for root, dirs, files in os.walk(directory_path, topdown=False):
-            for dir in dirs:
-                dir_path = os.path.join(root, dir)
-                try:
-                    secure_delete_directory(dir_path)
-                except Exception as e:
-                    error_files.append((dir_path, str(e)))
+        # Delete descendants only; the requested directory is kept as the target boundary.
+        target_root = os.path.normcase(os.path.abspath(directory_path))
+        directories = []
+        for root, _, _ in os.walk(directory_path, topdown=False, followlinks=False):
+            if os.path.normcase(os.path.abspath(root)) != target_root:
+                directories.append(root)
+
+        for dir_path in directories:
+            try:
+                secure_delete_directory(dir_path)
+            except Exception as e:
+                error_files.append((dir_path, str(e)))
 
     return len(error_files) == errors_before
 
