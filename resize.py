@@ -132,6 +132,10 @@ Notes
      - contain: scales up/down to fit inside the box, then pads
     --preserve-size (or --no-resize) skips min/max dimension processing and
         keeps each source image's dimensions. It cannot be combined with --box.
+    --recursive includes nested directories. Without --alongside, their relative
+        folders are mirrored below --output_dir.
+    --alongside writes beside each source file. Existing destination files are
+        skipped and listed after processing; no files are overwritten.
     --meta-forge preserves a source image's raw 'parameters' metadata. PNG uses
         a parameters text field, JPEG uses a comment, and WebP/AVIF/HEIC use EXIF
         UserComment. AVI is a video format; use .avif for AV1 still images.
@@ -352,7 +356,7 @@ def _auto_normalize(img, strength=0.5):
     return normalized, details
 
 
-def resize_images(dir_path, output_dir, min_dimension, max_dimension, target_ext, rename=False, box=None, box_mode="clip", pad_color="black", brightness=1.0, red=1.0, green=1.0, blue=1.0, auto_normalize=False, auto_strength=0.5, meta_forge=False, preserve_size=False):
+def resize_images(dir_path, output_dir, min_dimension, max_dimension, target_ext, rename=False, box=None, box_mode="clip", pad_color="black", brightness=1.0, red=1.0, green=1.0, blue=1.0, auto_normalize=False, auto_strength=0.5, meta_forge=False, preserve_size=False, recursive=False, alongside=False):
     _require_pillow()
     # Check if the directory exists
     if not os.path.isdir(dir_path):
@@ -360,7 +364,7 @@ def resize_images(dir_path, output_dir, min_dimension, max_dimension, target_ext
         return
 
     # Create the output directory if it doesn't exist
-    if not os.path.exists(output_dir):
+    if not alongside and not os.path.exists(output_dir):
         os.makedirs(output_dir)
 
     # Validate the target extension
@@ -369,16 +373,44 @@ def resize_images(dir_path, output_dir, min_dimension, max_dimension, target_ext
         return
 
     unsuccessful_conversions = []
+    collisions = []
 
     # Gather all image files to process
     valid_exts = (".jpg", ".png", ".jpeg", ".webp", ".avif", ".heic")
-    all_files = [f for f in os.listdir(dir_path) if f.lower().endswith(valid_exts)]
+    source_root = os.path.normcase(os.path.abspath(dir_path))
+    output_root = os.path.normcase(os.path.abspath(output_dir))
+
+    def is_generated_output(path):
+        if alongside or output_root == source_root:
+            return False
+        normalized_path = os.path.normcase(os.path.abspath(path))
+        try:
+            return os.path.commonpath([normalized_path, output_root]) == output_root
+        except ValueError:
+            return False
+
+    if recursive:
+        all_files = [
+            os.path.join(root, filename)
+            for root, _, filenames in os.walk(dir_path)
+            for filename in filenames
+            if filename.lower().endswith(valid_exts)
+            and not (alongside and os.path.splitext(filename)[1].lower() == target_ext.lower())
+            and not is_generated_output(os.path.join(root, filename))
+        ]
+    else:
+        all_files = [
+            os.path.join(dir_path, filename)
+            for filename in os.listdir(dir_path)
+            if filename.lower().endswith(valid_exts)
+            and not (alongside and os.path.splitext(filename)[1].lower() == target_ext.lower())
+        ]
     total_files = len(all_files)
     print(f"Found {total_files} image files to process.")
 
-    for idx, filename in enumerate(all_files):
+    for idx, img_path in enumerate(all_files):
+        filename = os.path.basename(img_path)
         try:
-            img_path = os.path.join(dir_path, filename)
             img = Image.open(img_path)
             meta_forge_parameters = _get_meta_forge_parameters(img) if meta_forge else None
             if meta_forge and meta_forge_parameters is None:
@@ -435,7 +467,19 @@ def resize_images(dir_path, output_dir, min_dimension, max_dimension, target_ext
                 guid_filename = generate_unique_guid(output_dir, target_ext)
                 resized_img_path = os.path.join(output_dir, guid_filename)
             else:
-                resized_img_path = os.path.join(output_dir, os.path.splitext(filename)[0] + target_ext)
+                destination_dir = os.path.dirname(img_path) if alongside else output_dir
+                if not alongside and recursive:
+                    relative_dir = os.path.relpath(os.path.dirname(img_path), dir_path)
+                    if relative_dir != ".":
+                        destination_dir = os.path.join(output_dir, relative_dir)
+                resized_img_path = os.path.join(destination_dir, os.path.splitext(filename)[0] + target_ext)
+
+            if os.path.exists(resized_img_path):
+                collisions.append(resized_img_path)
+                print(f"Skipped collision: {resized_img_path}")
+                continue
+
+            os.makedirs(os.path.dirname(resized_img_path), exist_ok=True)
 
             _save_image(resized_img, resized_img_path, target_ext, meta_forge_parameters)
 
@@ -449,6 +493,11 @@ def resize_images(dir_path, output_dir, min_dimension, max_dimension, target_ext
         print("\nThe following files were not successfully converted:")
         for file in unsuccessful_conversions:
             print(file)
+
+    if collisions:
+        print("\nSkipped existing output files (no data was overwritten):")
+        for collision in collisions:
+            print(collision)
     
     # Batch rename files if --rename flag is enabled
     if rename:
@@ -512,6 +561,10 @@ if __name__ == "__main__":
     parser.add_argument("--examples", action="store_true", help="Print usage examples and exit (no dir_path required).")
     parser.add_argument("--help-verbose", action="store_true", help="Show detailed help + examples and exit (no dir_path required).")
     parser.add_argument("--output_dir", type=str, help="The path to the directory to save resized images. Defaults to '<dir_path>/resized-images-resize-py'.", default=None)
+    parser.add_argument("--recursive", action="store_true",
+                        help="Process images in the target directory and all nested directories.")
+    parser.add_argument("--alongside", "--sibling-output", dest="alongside", action="store_true",
+                        help="Write each converted image beside its source; existing files are skipped and reported.")
     parser.add_argument("--min_dimension", type=int, help="The minimum dimension for the resized images.", default=None)
     parser.add_argument("--max_dimension", type=int, help="The maximum dimension for the resized images.", default=None)
     parser.add_argument("--fit-range", action="store_true",
@@ -567,6 +620,9 @@ if __name__ == "__main__":
     if args.preserve_size and args.fit_range:
         parser.error("--preserve-size/--no-resize cannot be combined with --fit-range")
 
+    if args.alongside and args.rename:
+        parser.error("--alongside/--sibling-output cannot be combined with --rename")
+
     if args.fit_range:
         args.min_dimension = 1600 if args.min_dimension is None else args.min_dimension
         args.max_dimension = 2048 if args.max_dimension is None else args.max_dimension
@@ -602,4 +658,6 @@ if __name__ == "__main__":
             auto_strength=args.auto_strength,
             meta_forge=args.meta_forge,
             preserve_size=args.preserve_size,
+            recursive=args.recursive,
+            alongside=args.alongside,
         )
