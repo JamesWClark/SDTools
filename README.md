@@ -29,6 +29,14 @@ Resize images to fit between min and max dimensions while maintaining aspect rat
 python resize.py "C:\images" --min_dimension 1600 --max_dimension 2048 --target_ext .jpg
 ```
 
+The default now preserves source dimensions. Use `--fit-range` to opt into the legacy 1600-to-2048 dimension bounds:
+
+```bash
+python resize.py "C:\images" --fit-range --target_ext .webp
+```
+
+Use `--min_dimension` and/or `--max_dimension` for custom bounds.
+
 ### Change Output Format
 Specify the output format as a positional argument or use `--target_ext`:
 
@@ -42,6 +50,15 @@ python resize.py "C:\images" --target_ext .png
 ```
 
 Supported formats: `.jpg`, `.png`, `.webp`, `.avif`, `.heic`
+
+### Preserve Generation Metadata
+Use `--meta-forge` to copy a source image's raw `parameters` metadata to the converted file:
+
+```bash
+python resize.py "C:\images" --meta-forge --preserve-size --target_ext .avif
+```
+
+`--preserve-size` skips the default min/max dimension processing and keeps each source image's dimensions. `--no-resize` is an alias. The flag cannot be combined with `--box`. The text is preserved without reformatting. PNG stores it in the `parameters` text field, JPEG stores it as a comment, and WebP, AVIF, and HEIC store it in EXIF `UserComment`. `.avi` is a video format; use `.avif` for AV1 still-image conversion.
 
 ### Adjust Brightness
 Lighten or darken images:
@@ -226,8 +243,9 @@ python resize.py --examples          # Just the examples
 | `target_ext_positional` | string | (optional) | Output format as positional arg (e.g., `.png`, `jpg`) |
 | `--target_ext` | string | `.jpg` | Output format: `.jpg`, `.png`, `.webp`, `.avif`, `.heic` |
 | `--output_dir` | path | `<dir_path>/resized-images-resize-py` | Where to save processed images |
-| `--min_dimension` | int | `1600` | Minimum width/height to upscale to |
-| `--max_dimension` | int | `2048` | Maximum width/height to downscale to |
+| `--min_dimension` | int | (none) | Minimum width/height to upscale to when supplied |
+| `--max_dimension` | int | (none) | Maximum width/height to downscale to when supplied |
+| `--fit-range` | flag | (false) | Apply the legacy 1600-to-2048 dimension bounds |
 | `--brightness` | float | `1.0` | Brightness multiplier (1.0=original, >1.0=lighter, <1.0=darker) |
 | `--box` | WIDTH HEIGHT | (none) | Force exact output size (overrides min/max resizing) |
 | `--box_mode` | choice | `clip` | How to fit into box: `clip`, `cover`, `contain` |
@@ -236,6 +254,7 @@ python resize.py --examples          # Just the examples
 | `--red` | float | `1.0` | Red channel multiplier (1.0=original, >1.0=more red, <1.0=less red) |
 | `--green` | float | `1.0` | Green channel multiplier (1.0=original, >1.0=more green, <1.0=less green) |
 | `--blue` | float | `1.0` | Blue channel multiplier (1.0=original, >1.0=more blue, <1.0=less blue) |
+| `--meta-forge` | flag | (false) | Preserve source `parameters` metadata in the converted output |
 | `--rename` | flag | (false) | Rename outputs to `folder_name (1)`, `folder_name (2)`, etc. |
 | `--flip_horizontal` | flag | (false) | Flip images left-to-right |
 | `--flip_vertical` | flag | (false) | Flip images top-to-bottom |

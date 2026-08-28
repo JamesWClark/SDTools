@@ -43,6 +43,46 @@ def _require_pillow():
 
     return Image, ImageColor, ImageOps
 
+
+def _get_meta_forge_parameters(img):
+    """Return the source PNG parameters text when present."""
+    parameters = img.info.get("parameters")
+    return parameters if isinstance(parameters, str) and parameters else None
+
+
+def _get_meta_forge_exif(parameters):
+    """Store parameters in EXIF UserComment for formats without text chunks."""
+    exif = Image.Exif()
+    exif[37510] = b"ASCII\x00\x00\x00" + parameters.encode("utf-8")
+    return exif.tobytes()
+
+
+def _save_image(img, output_path, target_ext, parameters=None):
+    save_kwargs = {}
+    if parameters:
+        if target_ext == ".png":
+            from PIL.PngImagePlugin import PngInfo
+
+            pnginfo = PngInfo()
+            pnginfo.add_text("parameters", parameters)
+            save_kwargs["pnginfo"] = pnginfo
+        elif target_ext == ".jpg":
+            save_kwargs["comment"] = parameters.encode("utf-8")
+        elif target_ext in {".webp", ".avif", ".heic"}:
+            save_kwargs["exif"] = _get_meta_forge_exif(parameters)
+
+    if target_ext == ".jpg":
+        img = img.convert("RGB")
+        img.save(output_path, "JPEG", **save_kwargs)
+    elif target_ext == ".png":
+        img.save(output_path, "PNG", **save_kwargs)
+    elif target_ext == ".webp":
+        img.save(output_path, "WEBP", **save_kwargs)
+    elif target_ext == ".avif":
+        img.save(output_path, "AVIF", **save_kwargs)
+    elif target_ext == ".heic":
+        img.save(output_path, "HEIF", **save_kwargs)
+
 EXAMPLES_TEXT = """\
 Examples
 
@@ -71,6 +111,9 @@ Examples
 
   5) Conservatively correct a global color cast and brightness
       python resize.py "C:\\images" --auto_normalize --target_ext .jpg
+
+  6) Preserve Stable Diffusion parameters metadata while converting
+      python resize.py "C:\\images" --meta-forge --preserve-size --target_ext .avif
 """
 
 
@@ -78,6 +121,8 @@ VERBOSE_NOTES = """\
 Notes
 
   --box overrides --min_dimension/--max_dimension.
+        By default, source dimensions are preserved. Use --fit-range to apply the
+        legacy 1600-2048 dimension range, or provide custom min/max values.
     --auto_normalize uses a bounded gray-world white balance and luminance-only
     exposure adjustment. It skips nearly monochrome images and cannot determine
     artistic intent, so review output before replacing originals.
@@ -85,6 +130,11 @@ Notes
      - clip: no scaling; crops/pads to reach the box size
      - cover: scales up/down to fully fill the box, then crops
      - contain: scales up/down to fit inside the box, then pads
+    --preserve-size (or --no-resize) skips min/max dimension processing and
+        keeps each source image's dimensions. It cannot be combined with --box.
+    --meta-forge preserves a source image's raw 'parameters' metadata. PNG uses
+        a parameters text field, JPEG uses a comment, and WebP/AVIF/HEIC use EXIF
+        UserComment. AVI is a video format; use .avif for AV1 still images.
 
 Dependencies
 
@@ -302,7 +352,7 @@ def _auto_normalize(img, strength=0.5):
     return normalized, details
 
 
-def resize_images(dir_path, output_dir, min_dimension, max_dimension, target_ext, rename=False, box=None, box_mode="clip", pad_color="black", brightness=1.0, red=1.0, green=1.0, blue=1.0, auto_normalize=False, auto_strength=0.5):
+def resize_images(dir_path, output_dir, min_dimension, max_dimension, target_ext, rename=False, box=None, box_mode="clip", pad_color="black", brightness=1.0, red=1.0, green=1.0, blue=1.0, auto_normalize=False, auto_strength=0.5, meta_forge=False, preserve_size=False):
     _require_pillow()
     # Check if the directory exists
     if not os.path.isdir(dir_path):
@@ -330,8 +380,13 @@ def resize_images(dir_path, output_dir, min_dimension, max_dimension, target_ext
         try:
             img_path = os.path.join(dir_path, filename)
             img = Image.open(img_path)
+            meta_forge_parameters = _get_meta_forge_parameters(img) if meta_forge else None
+            if meta_forge and meta_forge_parameters is None:
+                print(f"  Meta Forge: no 'parameters' metadata found in {filename}")
 
-            if box is not None:
+            if preserve_size:
+                resized_img = ImageOps.exif_transpose(img)
+            elif box is not None:
                 resized_img = _fit_to_box(img, box, box_mode=box_mode, pad_color=pad_color)
             else:
                 img = ImageOps.exif_transpose(img)
@@ -382,18 +437,7 @@ def resize_images(dir_path, output_dir, min_dimension, max_dimension, target_ext
             else:
                 resized_img_path = os.path.join(output_dir, os.path.splitext(filename)[0] + target_ext)
 
-            # Save the resized image in the target format
-            if target_ext == '.jpg':
-                resized_img = resized_img.convert("RGB")  # Ensure image is in RGB mode for JPEG
-                resized_img.save(resized_img_path, 'JPEG')
-            elif target_ext == '.png':
-                resized_img.save(resized_img_path, 'PNG')
-            elif target_ext == '.webp':
-                resized_img.save(resized_img_path, 'WEBP')
-            elif target_ext == '.avif':
-                resized_img.save(resized_img_path, 'AVIF')
-            elif target_ext == '.heic':
-                resized_img.save(resized_img_path, 'HEIF')
+            _save_image(resized_img, resized_img_path, target_ext, meta_forge_parameters)
 
             print(f"{idx+1}/{total_files}: Processed {filename}")
         except Exception as e:
@@ -468,12 +512,16 @@ if __name__ == "__main__":
     parser.add_argument("--examples", action="store_true", help="Print usage examples and exit (no dir_path required).")
     parser.add_argument("--help-verbose", action="store_true", help="Show detailed help + examples and exit (no dir_path required).")
     parser.add_argument("--output_dir", type=str, help="The path to the directory to save resized images. Defaults to '<dir_path>/resized-images-resize-py'.", default=None)
-    parser.add_argument("--min_dimension", type=int, help="The minimum dimension for the resized images.", default=1600)
-    parser.add_argument("--max_dimension", type=int, help="The maximum dimension for the resized images.", default=2048)
+    parser.add_argument("--min_dimension", type=int, help="The minimum dimension for the resized images.", default=None)
+    parser.add_argument("--max_dimension", type=int, help="The maximum dimension for the resized images.", default=None)
+    parser.add_argument("--fit-range", action="store_true",
+                        help="Use the legacy 1600-2048 dimension range instead of preserving source dimensions by default.")
     parser.add_argument("--box", nargs=2, type=int, metavar=("WIDTH", "HEIGHT"), default=None,
                         help="If set, output is forced to exactly WIDTHxHEIGHT using --box_mode (overrides min/max resizing).")
     parser.add_argument("--box_mode", choices=["clip", "cover", "contain"], default="clip",
                         help="How to fit into --box: clip (no scaling, center-crop/pad), cover (scale+crop), contain (scale+pad).")
+    parser.add_argument("--preserve-size", "--no-resize", dest="preserve_size", action="store_true",
+                        help="Preserve each source image's dimensions; ignore --min_dimension and --max_dimension.")
     parser.add_argument("--pad_color", type=str, default="black",
                         help="Padding color for --box_mode contain/clip when image is smaller. Use 'transparent' for alpha-capable outputs.")
     parser.add_argument("--brightness", type=float, default=1.0,
@@ -488,6 +536,8 @@ if __name__ == "__main__":
                         help="Conservatively reduce global RGB casts and correct overall brightness; skips nearly monochrome images.")
     parser.add_argument("--auto_strength", type=float, default=0.5,
                         help="Auto-normalize strength from 0.0 to 1.0 (default: 0.5; channel/exposure changes remain capped).")
+    parser.add_argument("--meta-forge", action="store_true",
+                        help="Preserve source 'parameters' metadata in the converted output when the format supports it.")
     parser.add_argument("--target_ext", type=str, help="The target file extension for the resized images (e.g., .jpg, .png, .webp, or .avif).", default=".jpg")
     parser.add_argument("--rename", action="store_true", help="Rename output files to folder_name (1), folder_name (2), etc. instead of preserving original names.")
     parser.add_argument("--flip_horizontal", action="store_true", help="Flip images horizontally.")
@@ -507,6 +557,19 @@ if __name__ == "__main__":
 
     if args.dir_path is None:
         parser.error("dir_path is required unless using --examples or --help-verbose")
+
+    if args.preserve_size and args.box:
+        parser.error("--preserve-size/--no-resize cannot be combined with --box")
+
+    if args.fit_range and args.box:
+        parser.error("--fit-range cannot be combined with --box")
+
+    if args.preserve_size and args.fit_range:
+        parser.error("--preserve-size/--no-resize cannot be combined with --fit-range")
+
+    if args.fit_range:
+        args.min_dimension = 1600 if args.min_dimension is None else args.min_dimension
+        args.max_dimension = 2048 if args.max_dimension is None else args.max_dimension
 
     # Auto-generate output directory if not provided
     if args.output_dir is None:
@@ -537,4 +600,6 @@ if __name__ == "__main__":
             blue=args.blue,
             auto_normalize=args.auto_normalize,
             auto_strength=args.auto_strength,
+            meta_forge=args.meta_forge,
+            preserve_size=args.preserve_size,
         )
