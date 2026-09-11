@@ -343,6 +343,62 @@ python resize.py "C:\images" --blue 0.9 .png  # Slight
 - PNG and WebP support alpha transparency (use with `--pad_color transparent`)
 - Original image orientation (EXIF) is automatically corrected before processing
 
+# macOS File Cleanup
+
+[sdelete.sh](sdelete.sh) accepts an optional file or directory. With a path, it operates only on that path: no application cleanup or Trash emptying is added. For directories, it deletes descendants but keeps the requested directory. It uses the tools included with current macOS; no Homebrew packages are required.
+
+```bash
+bash sdelete.sh --dry-run "/path/to/folder"
+bash sdelete.sh "/path/to/folder"
+bash sdelete.sh --yes "/path/to/file-or-folder"
+```
+
+The default run reports the storage type, FileVault status, reported TRIM support for the backing disks, and the target volume's APFS snapshot count where available. It then asks you to type `DELETE`. `--yes` skips confirmation; no other opt-in flag is required. Dry-run changes nothing in the target.
+
+## No-Path Cleanup
+
+```bash
+bash sdelete.sh --dry-run
+bash sdelete.sh
+bash sdelete.sh --yes
+```
+
+Without a path, the script previews its selected targets and asks for one confirmation before cleaning:
+
+- QuickTime Player, Preview, and TextEdit application recent-document lists (`sfl`, `sfl2`, and `sfl3`), including known sandbox locations and legacy `NSRecentDocuments` preferences.
+- Finder recent-folder lists and the `FXRecentFolders` preference, preserving sidebar favorites and other settings.
+- The contents of your home Trash and your numeric-user-ID Trash on volumes mounted directly under `/Volumes`. Other users' Trash is excluded. Trash uses the same SSD/HDD-aware deletion as explicit paths, not a stronger physical-erasure method.
+
+Browser profiles, history, caches, sessions, and browser recent-document lists are not targeted. Global recent-application/document lists, general application caches, saved sessions, autosaves, and application containers are not swept. This is an explicit allowlist, not automatic cleanup of every installed app. Emptying Trash necessarily includes any browser files you previously placed in Trash.
+
+Quit QuickTime Player, Preview, and TextEdit first; an active app blocks destructive default cleanup to reduce recent-list recreation. Target access is checked before any changes. If macOS denies Trash or Library access, grant your terminal application (or VS Code for its integrated terminal) **Full Disk Access** in System Settings > Privacy & Security, then restart it and retry the preview. The script does not request elevation or bypass macOS privacy controls. Permission changes during cleanup can still cause partial completion.
+
+Recent-item services and Finder can cache menus until logout/login. The script does not forcibly restart shared services, Finder, or applications. Preference-key deletion is logical, not secure erasure of old plist extents. Missing known lists are skipped; this does not prove every app/version-specific history store has been cleared. Symlinks, hard links, and special files retain the normal safety policy and can prevent Trash from being completely emptied; they are reported as skips/errors.
+
+## Storage-Aware Defaults
+
+- **SSD, APFS, Fusion, or unknown storage:** logical deletion without overwriting. macOS manages TRIM on supported storage. Overwriting cannot reliably reach old SSD blocks or APFS copy-on-write extents, and creates unnecessary writes.
+- **Confirmed non-Fusion HFS+ spinning disk:** one random overwrite pass over the file's exact logical length, flush, then unlink. This is still not a physical-erasure guarantee and does not securely overwrite extended attributes, resource forks, or filesystem metadata.
+- **Safety:** refuse system/top-level targets, volume roots, and your home directory. Do not follow symlinks or cross filesystems. Retain and report hard-linked files, special files, and overwrite failures. Remove directories only when empty. Skips or failures produce a nonzero exit status.
+
+Close applications using the target first. Shell pathname checks are not atomic: this script is not safe against concurrent renames, mounts, or a malicious process changing the tree. Files held open elsewhere can remain readable after unlinking. A failed overwrite can leave a partially overwritten file.
+
+## What TRIM Does Not Guarantee
+
+TRIM tells the storage controller that filesystem blocks are no longer needed. Reported support does not prove that TRIM was issued for a particular file, or that the controller has physically erased its flash cells. Snapshots and clones can keep blocks allocated. An unknown report is not evidence that TRIM is disabled; some enclosures and storage stacks do not expose the information.
+
+There is no supported per-file macOS command that this script can use to force and verify flash erasure. `sync` is not such a command. The script does not invoke `trimforce`, erase free space, or delete snapshots or backups. `trimforce` changes system-wide TRIM support for certain third-party AHCI drives, requires a reboot, and carries compatibility risks; it is not a per-file erase operation. Windows SDelete plus enabled NTFS TRIM has the same fundamental SSD wear-leveling limitation.
+
+**For stronger protection:** enable FileVault before storing sensitive data. FileVault protects locked storage, but ordinary file deletion does not destroy its volume key or make retained copies inaccessible while unlocked. Keep highly sensitive future data in separately encrypted storage with independently managed keys, and account for backups, snapshots, exports, and application caches. For retiring a supported Mac, use Apple's Erase All Content and Settings workflow, which destroys encryption keys for the erased data; this is a whole-device workflow, not selective file deletion. Already-written unencrypted SSD data cannot be reliably sanitized file by file by this script.
+
+Run the disposable-fixture regression tests on macOS:
+
+```bash
+bash test_sdelete.sh
+```
+
+Tests mock disk reports and failures while performing real writes/deletions only in a fresh temporary directory. They do not certify physical erasure or exercise real HDD firmware or mounted external-volume boundaries.
+
 # Secure Cleaner Script
 
 `clean.py` is a Windows cleanup utility that uses Microsoft Sysinternals SDelete to securely remove existing files. It also checks that NTFS TRIM is enabled before cleanup. If TRIM is disabled, the script can request administrator access to enable it and then verifies the setting again.
