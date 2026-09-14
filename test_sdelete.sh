@@ -20,6 +20,9 @@ run_script() (
 			*) return 1 ;;
 		esac
 	}
+	function /usr/bin/killall() {
+		return 0
+	}
 	function /usr/bin/find() {
 		if [ "$2" = /Volumes ]; then
 			if [ -n "${TEST_VOLUME:-}" ]; then
@@ -161,7 +164,9 @@ for app in quicktimeplayerx preview textedit safari chrome firefox; do
 done
 printf folders > "$recent/com.apple.LSSharedFileList.RecentFolders.sfl3"
 printf favorites > "$recent/com.apple.LSSharedFileList.FavoriteItems.sfl3"
-printf global > "$recent/com.apple.LSSharedFileList.RecentDocuments.sfl3"
+printf recentapps > "$recent/com.apple.LSSharedFileList.RecentApplications.sfl3"
+printf recentdocs > "$recent/com.apple.LSSharedFileList.RecentDocuments.sfl3"
+printf recentservers > "$recent/com.apple.LSSharedFileList.RecentServers.sfl3"
 printf oldrecent > "$preferences/com.apple.QuickTimePlayerX.NSRecentDocuments"
 printf finderrecent > "$preferences/com.apple.finder.FXRecentFolders"
 printf settings > "$preferences/com.apple.QuickTimePlayerX.other"
@@ -178,6 +183,9 @@ printf cache > "$fake_home/Library/Caches/com.apple.Safari/data"
 HOME="$fake_home" TEST_VOLUME="$volume" run_script --dry-run > "$fixture/output"
 test -f "$fake_home/.Trash/nested/deleted"
 test -f "$app_recent/com.apple.quicktimeplayerx.sfl3"
+test -f "$recent/com.apple.LSSharedFileList.RecentApplications.sfl3"
+test -f "$recent/com.apple.LSSharedFileList.RecentDocuments.sfl3"
+test -f "$recent/com.apple.LSSharedFileList.RecentServers.sfl3"
 test -f "$preferences/com.apple.QuickTimePlayerX.NSRecentDocuments"
 HOME="$fake_home" TEST_VOLUME="$volume" expect_failure run_script < /dev/null
 HOME="$fake_home" TEST_VOLUME="$volume" TEST_APP_RUNNING=true expect_failure run_script --yes
@@ -199,6 +207,9 @@ for app in quicktimeplayerx preview textedit; do
 	test ! -e "$app_recent/com.apple.$app.sfl3"
 done
 test ! -e "$recent/com.apple.LSSharedFileList.RecentFolders.sfl3"
+test ! -e "$recent/com.apple.LSSharedFileList.RecentApplications.sfl3"
+test ! -e "$recent/com.apple.LSSharedFileList.RecentDocuments.sfl3"
+test ! -e "$recent/com.apple.LSSharedFileList.RecentServers.sfl3"
 test ! -e "$preferences/com.apple.QuickTimePlayerX.NSRecentDocuments"
 test ! -e "$preferences/com.apple.finder.FXRecentFolders"
 test ! -e "$container_recent/com.apple.quicktimeplayerx.sfl2"
@@ -212,7 +223,6 @@ done
 test "$(cat "$fake_home/Library/Safari/History.db")" = history
 test "$(cat "$fake_home/Library/Caches/com.apple.Safari/data")" = cache
 test "$(cat "$recent/com.apple.LSSharedFileList.FavoriteItems.sfl3")" = favorites
-test "$(cat "$recent/com.apple.LSSharedFileList.RecentDocuments.sfl3")" = global
 test "$(cat "$preferences/com.apple.QuickTimePlayerX.other")" = settings
 test "$(cat "$volume/.Trashes/another-user")" = external
 printf 'PASS: recent items and user Trash cleared; browsers, settings, favorites, and other users preserved\n'

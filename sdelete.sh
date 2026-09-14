@@ -275,9 +275,13 @@ default_cleanup() {
 	local app_names=('QuickTime Player' 'Preview' 'TextEdit')
 	local bundles=('com.apple.QuickTimePlayerX' 'com.apple.Preview' 'com.apple.TextEdit')
 	local app_index
+	if [ "$(/usr/bin/id -u)" -eq 0 ]; then
+		printf '%s\n' 'Default cleanup must run as the logged-in user, not from sudo su.' >&2
+		return 1
+	fi
 	recent_root="$HOME/Library/Application Support/com.apple.sharedfilelist"
 	printf '%s\n' 'Default cleanup: QuickTime/Preview/TextEdit recent files, Finder recent folders, and your Trash.'
-	printf '%s\n' 'Browser profiles, history, caches, sessions, and global recent-app/document lists are excluded.'
+	printf '%s\n' 'Browser profiles, history, caches, and sessions are excluded; Apple menu Recent Items are included.'
 	printf '%s\n' 'Trash includes anything you placed there, including any previously trashed browser files.'
 	printf '%s\n' 'Physical erasure is not guaranteed on SSD/APFS; the storage-aware path mode applies.'
 	for app_index in 0 1 2; do
@@ -307,6 +311,9 @@ default_cleanup() {
 		preference_keys+=(FXRecentFolders)
 	fi
 	for extension in sfl sfl2 sfl3; do
+		cleanup_paths+=("$recent_root/com.apple.LSSharedFileList.RecentApplications.$extension")
+		cleanup_paths+=("$recent_root/com.apple.LSSharedFileList.RecentDocuments.$extension")
+		cleanup_paths+=("$recent_root/com.apple.LSSharedFileList.RecentServers.$extension")
 		cleanup_paths+=("$recent_root/com.apple.LSSharedFileList.RecentFolders.$extension")
 	done
 	cleanup_paths+=("$HOME/.Trash")
@@ -355,6 +362,9 @@ default_cleanup() {
 			cleanup_errors=$((cleanup_errors + 1))
 		fi
 	done
+	if ! "$dry_run"; then
+		/usr/bin/killall -HUP sharedfilelistd 2>/dev/null || true
+	fi
 	printf '%s\n' 'Recent-item services may cache lists until logout/login. No browser data or backups were targeted.'
 	printf 'Default cleanup failed targets: %s\n' "$cleanup_errors"
 	[ "$cleanup_errors" -eq 0 ]

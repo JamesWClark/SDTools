@@ -367,9 +367,10 @@ Without a path, the script previews its selected targets and asks for one confir
 
 - QuickTime Player, Preview, and TextEdit application recent-document lists (`sfl`, `sfl2`, and `sfl3`), including known sandbox locations and legacy `NSRecentDocuments` preferences.
 - Finder recent-folder lists and the `FXRecentFolders` preference, preserving sidebar favorites and other settings.
+- Apple menu Recent Items: recent applications, documents, and servers from the `com.apple.LSSharedFileList.Recent*.sfl*` shared-file lists.
 - The contents of your home Trash and your numeric-user-ID Trash on volumes mounted directly under `/Volumes`. Other users' Trash is excluded. Trash uses the same SSD/HDD-aware deletion as explicit paths, not a stronger physical-erasure method.
 
-Browser profiles, history, caches, sessions, and browser recent-document lists are not targeted. Global recent-application/document lists, general application caches, saved sessions, autosaves, and application containers are not swept. This is an explicit allowlist, not automatic cleanup of every installed app. Emptying Trash necessarily includes any browser files you previously placed in Trash.
+Browser profiles, history, caches, sessions, and browser recent-document lists are not targeted. General application caches, saved sessions, autosaves, and application containers are not swept. Run no-path cleanup as the logged-in GUI user; running it from `sudo su` targets root's home and cannot clear that user's Apple menu. This is an explicit allowlist, not automatic cleanup of every installed app. Emptying Trash necessarily includes any browser files you previously placed in Trash.
 
 Quit QuickTime Player, Preview, and TextEdit first; an active app blocks destructive default cleanup to reduce recent-list recreation. Target access is checked before any changes. If macOS denies Trash or Library access, grant your terminal application (or VS Code for its integrated terminal) **Full Disk Access** in System Settings > Privacy & Security, then restart it and retry the preview. The script does not request elevation or bypass macOS privacy controls. Permission changes during cleanup can still cause partial completion.
 
