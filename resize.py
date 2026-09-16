@@ -83,6 +83,55 @@ def _save_image(img, output_path, target_ext, parameters=None):
     elif target_ext == ".heic":
         img.save(output_path, "HEIF", **save_kwargs)
 
+
+def _copy_source_timestamps(source_path, output_path):
+    """Copy source access, modification, and Windows creation timestamps."""
+    source_stat = os.stat(source_path)
+    os.utime(output_path, ns=(source_stat.st_atime_ns, source_stat.st_mtime_ns))
+
+    if os.name != "nt":
+        return
+
+    import ctypes
+    from ctypes import wintypes
+
+    file_write_attributes = 0x0100
+    share_all = 0x00000001 | 0x00000002 | 0x00000004
+    creation_ticks = source_stat.st_ctime_ns // 100 + 116444736000000000
+    creation_time = wintypes.FILETIME(creation_ticks & 0xFFFFFFFF, creation_ticks >> 32)
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    create_file = kernel32.CreateFileW
+    create_file.argtypes = (
+        wintypes.LPCWSTR,
+        wintypes.DWORD,
+        wintypes.DWORD,
+        wintypes.LPVOID,
+        wintypes.DWORD,
+        wintypes.DWORD,
+        wintypes.HANDLE,
+    )
+    create_file.restype = wintypes.HANDLE
+    set_file_time = kernel32.SetFileTime
+    set_file_time.argtypes = (
+        wintypes.HANDLE,
+        ctypes.POINTER(wintypes.FILETIME),
+        ctypes.POINTER(wintypes.FILETIME),
+        ctypes.POINTER(wintypes.FILETIME),
+    )
+    set_file_time.restype = wintypes.BOOL
+    close_handle = kernel32.CloseHandle
+    close_handle.argtypes = (wintypes.HANDLE,)
+    close_handle.restype = wintypes.BOOL
+
+    handle = create_file(output_path, file_write_attributes, share_all, None, 3, 0, None)
+    if handle == wintypes.HANDLE(-1).value:
+        raise ctypes.WinError(ctypes.get_last_error())
+    try:
+        if not set_file_time(handle, ctypes.byref(creation_time), None, None):
+            raise ctypes.WinError(ctypes.get_last_error())
+    finally:
+        close_handle(handle)
+
 EXAMPLES_TEXT = """\
 Examples
 
@@ -136,6 +185,10 @@ Notes
         folders are mirrored below --output_dir.
     --alongside writes beside each source file. Existing destination files are
         skipped and listed after processing; no files are overwritten.
+    --clean securely deletes each source after its alongside conversion succeeds.
+        It requires --alongside and uses clean.py's sdelete-backed deletion.
+    Converted files retain the source access and modification timestamps. On
+        Windows, the original creation timestamp is retained as well.
     --meta-forge preserves a source image's raw 'parameters' metadata. PNG uses
         a parameters text field, JPEG uses a comment, and WebP/AVIF/HEIC use EXIF
         UserComment. AVI is a video format; use .avif for AV1 still images.
@@ -356,8 +409,15 @@ def _auto_normalize(img, strength=0.5):
     return normalized, details
 
 
-def resize_images(dir_path, output_dir, min_dimension, max_dimension, target_ext, rename=False, box=None, box_mode="clip", pad_color="black", brightness=1.0, red=1.0, green=1.0, blue=1.0, auto_normalize=False, auto_strength=0.5, meta_forge=False, preserve_size=False, recursive=False, alongside=False):
+def resize_images(dir_path, output_dir, min_dimension, max_dimension, target_ext, rename=False, box=None, box_mode="clip", pad_color="black", brightness=1.0, red=1.0, green=1.0, blue=1.0, auto_normalize=False, auto_strength=0.5, meta_forge=False, preserve_size=False, recursive=False, alongside=False, clean=False):
     _require_pillow()
+    if clean and not alongside:
+        raise ValueError("--clean requires alongside=True")
+
+    secure_delete_file = None
+    if clean:
+        from clean import secure_delete_file
+
     # Check if the directory exists
     if not os.path.isdir(dir_path):
         print(f"Error: The directory '{dir_path}' does not exist.")
@@ -374,6 +434,7 @@ def resize_images(dir_path, output_dir, min_dimension, max_dimension, target_ext
 
     unsuccessful_conversions = []
     collisions = []
+    unsuccessful_cleanups = []
 
     # Gather all image files to process
     valid_exts = (".jpg", ".png", ".jpeg", ".webp", ".avif", ".heic")
@@ -405,6 +466,7 @@ def resize_images(dir_path, output_dir, min_dimension, max_dimension, target_ext
             if filename.lower().endswith(valid_exts)
             and not (alongside and os.path.splitext(filename)[1].lower() == target_ext.lower())
         ]
+    all_files.sort(key=lambda path: (os.path.getctime(path), os.path.normcase(path)))
     total_files = len(all_files)
     print(f"Found {total_files} image files to process.")
 
@@ -482,6 +544,15 @@ def resize_images(dir_path, output_dir, min_dimension, max_dimension, target_ext
             os.makedirs(os.path.dirname(resized_img_path), exist_ok=True)
 
             _save_image(resized_img, resized_img_path, target_ext, meta_forge_parameters)
+            _copy_source_timestamps(img_path, resized_img_path)
+
+            if clean:
+                # Release Pillow's source handle before sdelete runs on Windows.
+                img.close()
+                if secure_delete_file(img_path, verbose=True):
+                    print(f"  Securely cleaned source: {img_path}")
+                else:
+                    unsuccessful_cleanups.append(img_path)
 
             print(f"{idx+1}/{total_files}: Processed {filename}")
         except Exception as e:
@@ -498,6 +569,11 @@ def resize_images(dir_path, output_dir, min_dimension, max_dimension, target_ext
         print("\nSkipped existing output files (no data was overwritten):")
         for collision in collisions:
             print(collision)
+
+    if unsuccessful_cleanups:
+        print("\nThe following source files were converted but not securely cleaned:")
+        for file in unsuccessful_cleanups:
+            print(file)
     
     # Batch rename files if --rename flag is enabled
     if rename:
@@ -565,6 +641,8 @@ if __name__ == "__main__":
                         help="Process images in the target directory and all nested directories.")
     parser.add_argument("--alongside", "--sibling-output", dest="alongside", action="store_true",
                         help="Write each converted image beside its source; existing files are skipped and reported.")
+    parser.add_argument("--clean", action="store_true",
+                        help="With --alongside, securely delete each source after its converted output is saved.")
     parser.add_argument("--min_dimension", type=int, help="The minimum dimension for the resized images.", default=None)
     parser.add_argument("--max_dimension", type=int, help="The maximum dimension for the resized images.", default=None)
     parser.add_argument("--fit-range", action="store_true",
@@ -623,6 +701,12 @@ if __name__ == "__main__":
     if args.alongside and args.rename:
         parser.error("--alongside/--sibling-output cannot be combined with --rename")
 
+    if args.clean and not args.alongside:
+        parser.error("--clean requires --alongside/--sibling-output")
+
+    if args.clean and (args.flip_horizontal or args.flip_vertical):
+        parser.error("--clean cannot be combined with flip options")
+
     if args.fit_range:
         args.min_dimension = 1600 if args.min_dimension is None else args.min_dimension
         args.max_dimension = 2048 if args.max_dimension is None else args.max_dimension
@@ -660,4 +744,5 @@ if __name__ == "__main__":
             preserve_size=args.preserve_size,
             recursive=args.recursive,
             alongside=args.alongside,
+            clean=args.clean,
         )

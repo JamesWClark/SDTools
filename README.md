@@ -22,6 +22,7 @@ pip install pillow-avif-plugin pillow-heif
 python resize.py "C:\images" `
   --recursive `
   --alongside `
+  --clean `
   --preserve-size `
   --meta-forge `
   --target_ext .webp
@@ -52,6 +53,14 @@ To create the converted copy beside each source image, use `--alongside`. Add `-
 ```bash
 python resize.py "C:\images" --recursive --alongside --preserve-size --meta-forge --target_ext .webp
 ```
+
+Add `--clean` to securely delete each original only after its converted alongside file is saved. This requires `sdelete` to be installed and available in `PATH`:
+
+```bash
+python resize.py "C:\images" --recursive --alongside --clean --preserve-size --meta-forge --target_ext .webp
+```
+
+If conversion fails, an output already exists, or secure deletion fails, the source is kept.
 
 Without `--alongside`, `--recursive` mirrors the input folder structure below `--output_dir`:
 
@@ -282,6 +291,7 @@ python resize.py --examples          # Just the examples
 | `--output_dir`          | path         | `<dir_path>/resized-images-resize-py` | Where to save processed images                                            |
 | `--recursive`           | flag         | (false)                                 | Include images in nested directories                                      |
 | `--alongside`           | flag         | (false)                                 | Write outputs beside sources; skip and report existing destinations       |
+| `--clean`               | flag         | (false)                                 | With `--alongside`, securely delete each source after successful conversion |
 | `--min_dimension`       | int          | (none)                                  | Minimum width/height to upscale to when supplied                          |
 | `--max_dimension`       | int          | (none)                                  | Maximum width/height to downscale to when supplied                        |
 | `--fit-range`           | flag         | (false)                                 | Apply the legacy 1600-to-2048 dimension bounds                            |
