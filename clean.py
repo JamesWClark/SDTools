@@ -112,11 +112,16 @@ def secure_delete_directory(directory_path, verbose=False):
         if verbose:
             print(f"Error securely deleting directory {directory_path}: {e}")
 
+def record_walk_error(error):
+    entry = (error.filename or 'Directory scan', str(error))
+    if entry not in error_files:
+        error_files.append(entry)
+
 def recursive_delete_directory(directory_path, verbose=False):
-    total_items = sum([len(files) + len(dirs) for _, dirs, files in os.walk(directory_path, followlinks=False)])
+    total_items = sum([len(files) + len(dirs) for _, dirs, files in os.walk(directory_path, followlinks=False, onerror=record_walk_error)])
     progress_bar = ProgressBar(total=total_items, desc=f"Processing {directory_path}", unit="item")
 
-    for root, dirs, files in os.walk(directory_path, topdown=False, followlinks=False):
+    for root, dirs, files in os.walk(directory_path, topdown=False, followlinks=False, onerror=record_walk_error):
         for file in files:
             file_path = os.path.join(root, file)
             secure_delete_file(file_path, verbose)
@@ -249,7 +254,7 @@ def clear_temp_files():
     temp_dirs = [os.getenv('TEMP'), os.getenv('TMP'), 'C:\\Windows\\Temp']
     for temp_dir in dict.fromkeys(path for path in temp_dirs if path):
         if os.path.isdir(temp_dir):
-            if parallel_secure_delete(temp_dir, remove_directories=False):
+            if parallel_secure_delete(temp_dir, remove_directories=True):
                 print(f"Temporary-file cleanup completed for {temp_dir}.")
 
 def clear_icon_and_thumbnail_cache():
@@ -533,17 +538,42 @@ def secure_delete_file_with_progress(file_path, verbose, progress_bar):
     finally:
         progress_bar.update(1)
 
-def parallel_secure_delete(directory_path, thread_count=None, remove_directories=True):
+def parallel_secure_delete(directory_path, thread_count=None, remove_directories=True, preserve_paths=None):
     errors_before = len(error_files)
 
     if thread_count is None:
         thread_count = get_default_thread_count()
 
+    preserved_paths = [
+        os.path.normcase(os.path.abspath(path))
+        for path in preserve_paths or []
+    ]
+
+    def is_within(path, root):
+        normalized_path = os.path.normcase(os.path.abspath(path))
+        try:
+            return os.path.commonpath((normalized_path, root)) == root
+        except ValueError:
+            return False
+
+    def is_preserved(path):
+        return any(is_within(path, root) for root in preserved_paths)
+
+    def contains_preserved_path(path):
+        normalized_path = os.path.normcase(os.path.abspath(path))
+        return any(is_within(root, normalized_path) for root in preserved_paths)
+
     # Gather all files to delete
     files = []
-    for root, _, filenames in os.walk(directory_path):
+    for root, dirs, filenames in os.walk(directory_path, onerror=record_walk_error):
+        if is_preserved(root):
+            dirs[:] = []
+            continue
+        dirs[:] = [directory for directory in dirs if not is_preserved(os.path.join(root, directory))]
         for f in filenames:
-            files.append(os.path.join(root, f))
+            file_path = os.path.join(root, f)
+            if not is_preserved(file_path):
+                files.append(file_path)
 
     total_files = len(files)
 
@@ -588,8 +618,12 @@ def parallel_secure_delete(directory_path, thread_count=None, remove_directories
         # Delete descendants only; the requested directory is kept as the target boundary.
         target_root = os.path.normcase(os.path.abspath(directory_path))
         directories = []
-        for root, _, _ in os.walk(directory_path, topdown=False, followlinks=False):
-            if os.path.normcase(os.path.abspath(root)) != target_root:
+        for root, _, _ in os.walk(directory_path, topdown=False, followlinks=False, onerror=record_walk_error):
+            if (
+                os.path.normcase(os.path.abspath(root)) != target_root
+                and not is_preserved(root)
+                and not contains_preserved_path(root)
+            ):
                 directories.append(root)
 
         for dir_path in directories:
@@ -778,23 +812,27 @@ if __name__ == '__main__':
             if not get_user_confirmation("Default cleanup paths", is_destructive=True, skip_confirm=args.yes):
                 sys.exit(1)
             
+            recent_items_path = os.path.join(os.getenv('APPDATA'), 'Microsoft', 'Windows', 'Recent')
             directory_paths = [
                 '../params.txt',
                 '../log/images',
                 '../../ComfyUI/input',
+                '../../ComfyUI/input-current',
                 'C:\\Windows\\Temp',
                 'C:\\Users\\JWC\\AppData\\Local\\Microsoft\\Windows\\Explorer',
                 'C:\\Users\\JWC\\AppData\\Roaming\\Code\\User\\workspaceStorage\\vscode-chat-images',
+                'C:\\Users\\JWC\\AppData\\Local\\Temp\\gradio',
                 '\\\\wsl.localhost\\Trellis2-Ubuntu-22.04.5\\root\\audioboss\\work',
                 os.path.join(os.getenv('LOCALAPPDATA'), 'Temp'),
                 os.path.join(os.getenv('USERPROFILE'), '.cache', 'lm-studio', 'user-files'),
+                os.path.join(os.getenv('USERPROFILE'), '.cache', 'lm-studio', 'conversations'),
                 os.path.join(os.getenv('LOCALAPPDATA'), 'Packages', 'Microsoft.ScreenSketch_8wekyb3d8bbwe', 'TempState', 'Snips'),
                 os.path.join(os.getenv('LOCALAPPDATA'), 'Packages', 'Microsoft.Paint_8wekyb3d8bbwe', 'TempState'),
                 os.path.join(os.getenv('LOCALAPPDATA'), 'Meltytech', 'Shotcut', 'cache'),
                 os.path.join(os.getenv('LOCALAPPDATA'), 'Meltytech', 'Shotcut', 'thumbnails'),
                 os.path.join(os.getenv('USERPROFILE'), 'Pictures', 'Screenshots'),
                 os.path.join(os.getenv('LOCALAPPDATA'), 'Microsoft', 'Windows', 'Clipboard'),
-                os.path.join(os.getenv('APPDATA'), 'Microsoft', 'Windows', 'Recent'),
+                recent_items_path,
                 os.path.join(os.getenv('LOCALAPPDATA'), 'Packages', 'Microsoft.ScreenSketch_8wekyb3d8bbwe', 'TempState'),
                 os.path.join(os.getenv('LOCALAPPDATA'), 'Packages', 'Microsoft.ScreenSketch_8wekyb3d8bbwe', 'LocalState'),
             ]
@@ -805,7 +843,13 @@ if __name__ == '__main__':
                         print(f"Securely deleted file: {path}")
                 elif os.path.isdir(path):
                     # Handle directory
-                    parallel_secure_delete(path, remove_directories=False)
+                    preserve_paths = []
+                    if os.path.normcase(os.path.abspath(path)) == os.path.normcase(os.path.abspath(recent_items_path)):
+                        preserve_paths = [
+                            os.path.join(path, 'AutomaticDestinations'),
+                            os.path.join(path, 'CustomDestinations'),
+                        ]
+                    parallel_secure_delete(path, remove_directories=False, preserve_paths=preserve_paths)
                 else:
                     print(f"Path not found or invalid: {path}")
         else:

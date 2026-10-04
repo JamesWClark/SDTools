@@ -283,30 +283,30 @@ python resize.py --examples          # Just the examples
 
 ## Parameter Reference
 
-| Parameter                 | Type         | Default                                 | Description                                                               |
-| ------------------------- | ------------ | --------------------------------------- | ------------------------------------------------------------------------- |
-| `dir_path`              | path         | (required)                              | Directory containing images to process                                    |
-| `target_ext_positional` | string       | (optional)                              | Output format as positional arg (e.g.,`.png`, `jpg`)                  |
-| `--target_ext`          | string       | `.jpg`                                | Output format:`.jpg`, `.png`, `.webp`, `.avif`, `.heic`         |
-| `--output_dir`          | path         | `<dir_path>/resized-images-resize-py` | Where to save processed images                                            |
-| `--recursive`           | flag         | (false)                                 | Include images in nested directories                                      |
-| `--alongside`           | flag         | (false)                                 | Write outputs beside sources; skip and report existing destinations       |
-| `--clean`               | flag         | (false)                                 | With `--alongside`, securely delete each source after successful conversion |
-| `--min_dimension`       | int          | (none)                                  | Minimum width/height to upscale to when supplied                          |
-| `--max_dimension`       | int          | (none)                                  | Maximum width/height to downscale to when supplied                        |
-| `--fit-range`           | flag         | (false)                                 | Apply the legacy 1600-to-2048 dimension bounds                            |
-| `--brightness`          | float        | `1.0`                                 | Brightness multiplier (1.0=original, >1.0=lighter, <1.0=darker)           |
-| `--box`                 | WIDTH HEIGHT | (none)                                  | Force exact output size (overrides min/max resizing)                      |
-| `--box_mode`            | choice       | `clip`                                | How to fit into box:`clip`, `cover`, `contain`                      |
-| `--pad_color`           | string       | `black`                               | Color for padding when using`--box_mode contain/clip`                   |
-| `--brightness`          | float        | `1.0`                                 | Brightness multiplier (1.0=original, >1.0=lighter, <1.0=darker)           |
-| `--red`                 | float        | `1.0`                                 | Red channel multiplier (1.0=original, >1.0=more red, <1.0=less red)       |
-| `--green`               | float        | `1.0`                                 | Green channel multiplier (1.0=original, >1.0=more green, <1.0=less green) |
-| `--blue`                | float        | `1.0`                                 | Blue channel multiplier (1.0=original, >1.0=more blue, <1.0=less blue)    |
-| `--meta-forge`          | flag         | (false)                                 | Preserve source`parameters` metadata in the converted output            |
-| `--rename`              | flag         | (false)                                 | Rename outputs to`folder_name (1)`, `folder_name (2)`, etc.           |
-| `--flip_horizontal`     | flag         | (false)                                 | Flip images left-to-right                                                 |
-| `--flip_vertical`       | flag         | (false)                                 | Flip images top-to-bottom                                                 |
+| Parameter                 | Type         | Default                                 | Description                                                                  |
+| ------------------------- | ------------ | --------------------------------------- | ---------------------------------------------------------------------------- |
+| `dir_path`              | path         | (required)                              | Directory containing images to process                                       |
+| `target_ext_positional` | string       | (optional)                              | Output format as positional arg (e.g.,`.png`, `jpg`)                     |
+| `--target_ext`          | string       | `.jpg`                                | Output format:`.jpg`, `.png`, `.webp`, `.avif`, `.heic`            |
+| `--output_dir`          | path         | `<dir_path>/resized-images-resize-py` | Where to save processed images                                               |
+| `--recursive`           | flag         | (false)                                 | Include images in nested directories                                         |
+| `--alongside`           | flag         | (false)                                 | Write outputs beside sources; skip and report existing destinations          |
+| `--clean`               | flag         | (false)                                 | With`--alongside`, securely delete each source after successful conversion |
+| `--min_dimension`       | int          | (none)                                  | Minimum width/height to upscale to when supplied                             |
+| `--max_dimension`       | int          | (none)                                  | Maximum width/height to downscale to when supplied                           |
+| `--fit-range`           | flag         | (false)                                 | Apply the legacy 1600-to-2048 dimension bounds                               |
+| `--brightness`          | float        | `1.0`                                 | Brightness multiplier (1.0=original, >1.0=lighter, <1.0=darker)              |
+| `--box`                 | WIDTH HEIGHT | (none)                                  | Force exact output size (overrides min/max resizing)                         |
+| `--box_mode`            | choice       | `clip`                                | How to fit into box:`clip`, `cover`, `contain`                         |
+| `--pad_color`           | string       | `black`                               | Color for padding when using`--box_mode contain/clip`                      |
+| `--brightness`          | float        | `1.0`                                 | Brightness multiplier (1.0=original, >1.0=lighter, <1.0=darker)              |
+| `--red`                 | float        | `1.0`                                 | Red channel multiplier (1.0=original, >1.0=more red, <1.0=less red)          |
+| `--green`               | float        | `1.0`                                 | Green channel multiplier (1.0=original, >1.0=more green, <1.0=less green)    |
+| `--blue`                | float        | `1.0`                                 | Blue channel multiplier (1.0=original, >1.0=more blue, <1.0=less blue)       |
+| `--meta-forge`          | flag         | (false)                                 | Preserve source`parameters` metadata in the converted output               |
+| `--rename`              | flag         | (false)                                 | Rename outputs to`folder_name (1)`, `folder_name (2)`, etc.              |
+| `--flip_horizontal`     | flag         | (false)                                 | Flip images left-to-right                                                    |
+| `--flip_vertical`       | flag         | (false)                                 | Flip images top-to-bottom                                                    |
 
 ## Brightness Adjustment Examples
 
@@ -428,7 +428,7 @@ Run the configured cleanup paths without interactive confirmation:
 python clean.py -Y
 ```
 
-The default no-path run includes configured temporary directories, screenshot and ScreenSketch data, clipboard storage, recent-item shortcuts, thumbnail caches, shell histories, Paint state, and other application caches listed in `clean.py`.
+The default no-path run includes configured temporary directories, screenshot and ScreenSketch data, clipboard storage, recent-item shortcuts, thumbnail caches, shell histories, Paint state, and other application caches listed in `clean.py`. It preserves the `AutomaticDestinations` and `CustomDestinations` folders under the Windows Recent directory so Jump List data, including taskbar app actions, is not removed.
 
 `-Y` skips the script's confirmation questions. It does not bypass Windows UAC. If NTFS TRIM is disabled, Windows still displays an administrator approval prompt, and cleanup proceeds only after TRIM is verified as enabled.
 
