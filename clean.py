@@ -826,6 +826,7 @@ if __name__ == '__main__':
                 os.path.join(os.getenv('LOCALAPPDATA'), 'Temp'),
                 os.path.join(os.getenv('USERPROFILE'), '.cache', 'lm-studio', 'user-files'),
                 os.path.join(os.getenv('USERPROFILE'), '.cache', 'lm-studio', 'conversations'),
+                os.path.join(os.getenv('USERPROFILE'), '.cache', 'lm-studio', 'server-logs'),
                 os.path.join(os.getenv('LOCALAPPDATA'), 'Packages', 'Microsoft.ScreenSketch_8wekyb3d8bbwe', 'TempState', 'Snips'),
                 os.path.join(os.getenv('LOCALAPPDATA'), 'Packages', 'Microsoft.Paint_8wekyb3d8bbwe', 'TempState'),
                 os.path.join(os.getenv('LOCALAPPDATA'), 'Meltytech', 'Shotcut', 'cache'),
